@@ -9,47 +9,77 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+OPENROUTER_API_KEY = ""
+OPENROUTER_MODEL = "openai/gpt-4o-mini"
+
+
+def configure_api_settings(api_key: str | None = None, model: str | None = None) -> tuple[str, str]:
+    """تحديث إعدادات OpenRouter من البيئة أو القيم المقدمة."""
+    global OPENROUTER_API_KEY, OPENROUTER_MODEL
+
+    if api_key is not None:
+        OPENROUTER_API_KEY = api_key.strip()
+    elif not OPENROUTER_API_KEY:
+        OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
+
+    if model is not None:
+        OPENROUTER_MODEL = model.strip()
+    elif not OPENROUTER_MODEL or OPENROUTER_MODEL == "openai/gpt-4o-mini":
+        OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL).strip()
+
+    os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
+    os.environ["OPENROUTER_MODEL"] = OPENROUTER_MODEL
+    return OPENROUTER_API_KEY, OPENROUTER_MODEL
+
+
+def get_api_config() -> tuple[str, str]:
+    """إرجاع الإعدادات الحالية لواجهة OpenRouter."""
+    return OPENROUTER_API_KEY, OPENROUTER_MODEL
+
+
+configure_api_settings()
 
 
 def build_system_prompt() -> str:
     """بناء system prompt عربي مرن يجمع بين السياق القانوني والمعرفة العامة."""
     return (
-        "أنت مساعد قانوني متخصص في قانون العمل المصري. "
-        "أجب بالاعتماد على السياق القانوني المسترجَع أولًا، وإذا لم يكن كافيًا يمكنك استخدام معرفتك العامة للمساعدة. "
-        "اكتب بالعربية الفصحى وبشكل واضح ومفهوم. "
-        "في كل إجابة اذكر رقم المادة القانونية المستخدمة صراحةً مثل: 'وفقًا للمادة 26' إذا كانت متوفرة في السياق. "
-        "إذا لم يكن هناك سياق كافٍ، أجب من معرفتك العامة مع توضيح أن الإجابة عامة وليست من النص القانوني المسترجَع. "
-        "كن مرنًا في فهم الأسئلة، وإذا كان السؤال غير واضح اطلب توضيحًا أو أعد صياغته بطريقة مفهومة."
+        "أنت مساعد قانوني عربي ودود متخصص في قانون العمل المصري. "
+        "أجب بشكل واضح ومباشر، وركز أولًا على السياق القانوني المتاح، لكن لا تتردد في استخدام معرفتك العامة إذا كان السياق غير كافٍ. "
+        "اكتب بالعربية البسيطة والفصحى مع شرح مناسب. "
+        "إذا كانت هناك مادة قانونية مناسبة في السياق، اذكرها بشكل بسيط مثل: 'وفقًا للمادة 26' أو 'في النص القانوني'. "
+        "إذا لم يكن السؤال واضحًا أو مبهمًا، اعترف بذلك بوضوح وقدم 2-3 أسئلة مقترحة تساعد على توضيح المطلوب. "
+        "إذا لم يوجد سياق كافٍ، أجب بشكل عام وقل بوضوح أن الإجابة عامة وليست نصًا قانونيًا مباشرًا."
     )
 
 
 def generate_answer(query: str, context_chunks: list[dict[str, Any]]) -> str:
     """إنشاء إجابة نهائية باستخدام OpenRouter API أو إرجاع رسالة بديلة عند فشل الاتصال."""
+    configure_api_settings()
+    api_key, model_name = get_api_config()
+
     try:
         from openai import OpenAI
     except Exception as exc:
         return f"تعذر تهيئة العميل: {exc}"
 
-    if not OPENROUTER_API_KEY:
-        return "لم يتم توفير مفتاح OpenRouter. أضف OPENROUTER_API_KEY في البيئة أو في Streamlit secrets."
+    if not api_key:
+        return "لم يتم توفير مفتاح OpenRouter. أضف المفتاح في البيئة أو في Streamlit secrets أو أدخله من الشريط الجانبي."
 
     context_text = "\n\n".join(
         [f"المادة {chunk.get('source', {}).get('article_number', 'غير محدد')}: {chunk.get('text', '')}" for chunk in context_chunks]
     )
 
     try:
-        client = OpenAI(api_key=OPENROUTER_API_KEY, base_url="https://openrouter.ai/api/v1")
+        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
         response = client.chat.completions.create(
-            model=OPENROUTER_MODEL,
+            model=model_name,
             messages=[
                 {"role": "system", "content": build_system_prompt()},
                 {"role": "user", "content": f"السؤال: {query}\n\nالسياق:\n{context_text}"},
             ],
             temperature=0.2,
         )
-        return response.choices[0].message.content or "لم يتم إنشاء إجابة." 
+        return response.choices[0].message.content or "لم يتم إنشاء إجابة."
     except Exception as exc:
         return f"تعذر الاتصال بالنموذج: {exc}"
 
