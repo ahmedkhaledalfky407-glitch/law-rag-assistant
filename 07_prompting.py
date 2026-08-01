@@ -13,19 +13,21 @@ OPENROUTER_API_KEY = ""
 OPENROUTER_MODEL = "openai/gpt-4o-mini"
 
 
-def configure_api_settings(api_key: str | None = None, model: str | None = None) -> tuple[str, str]:
-    """تحديث إعدادات OpenRouter من البيئة أو القيم المقدمة."""
+def configure_api_settings(api_key: str | None = None, model: str | None = None, secrets: dict[str, str] | None = None) -> tuple[str, str]:
+    """تحديث إعدادات OpenRouter من البيئة أو Streamlit secrets أو القيم المقدمة."""
     global OPENROUTER_API_KEY, OPENROUTER_MODEL
+
+    secret_store = secrets or {}
 
     if api_key is not None:
         OPENROUTER_API_KEY = api_key.strip()
     elif not OPENROUTER_API_KEY:
-        OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "").strip()
+        OPENROUTER_API_KEY = (secret_store.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY", "")).strip()
 
     if model is not None:
         OPENROUTER_MODEL = model.strip()
     elif not OPENROUTER_MODEL or OPENROUTER_MODEL == "openai/gpt-4o-mini":
-        OPENROUTER_MODEL = os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL).strip()
+        OPENROUTER_MODEL = (secret_store.get("OPENROUTER_MODEL") or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)).strip()
 
     os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
     os.environ["OPENROUTER_MODEL"] = OPENROUTER_MODEL

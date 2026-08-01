@@ -58,6 +58,14 @@ def apply_rtl_style() -> None:
     )
 
 
+def get_secret_value(key: str, default: str = "") -> str:
+    """قراءة قيمة من Streamlit secrets أو إرجاع القيمة الافتراضية."""
+    try:
+        return str(st.secrets.get(key, default))
+    except Exception:
+        return default
+
+
 def initialize_session() -> None:
     """تهيئة حالة الجلسة للحفاظ على سجل المحادثة."""
     if "messages" not in st.session_state:
@@ -67,16 +75,28 @@ def initialize_session() -> None:
     if "uploaded_sources" not in st.session_state:
         st.session_state.uploaded_sources = []
     if "openrouter_api_key" not in st.session_state:
-        st.session_state.openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        st.session_state.openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "") or get_secret_value("OPENROUTER_API_KEY", "")
     if "openrouter_model" not in st.session_state:
-        st.session_state.openrouter_model = os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
+        st.session_state.openrouter_model = os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL) or get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL)
 
 
 def configure_api_keys(api_key: str | None = None, model: str | None = None) -> None:
     """قراءة المفتاح من البيئة أو Streamlit secrets أو إدخال المستخدم."""
     try:
-        resolved_api_key = api_key or st.session_state.get("openrouter_api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")
-        resolved_model = model or st.session_state.get("openrouter_model", "") or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
+        secret_api_key = get_secret_value("OPENROUTER_API_KEY", "")
+        secret_model = get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL)
+        resolved_api_key = (
+            api_key
+            or st.session_state.get("openrouter_api_key", "")
+            or os.environ.get("OPENROUTER_API_KEY", "")
+            or secret_api_key
+        )
+        resolved_model = (
+            model
+            or st.session_state.get("openrouter_model", "")
+            or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
+            or secret_model
+        )
 
         if api_key is not None:
             st.session_state.openrouter_api_key = api_key
@@ -91,6 +111,10 @@ def configure_api_keys(api_key: str | None = None, model: str | None = None) -> 
         generate_answer_module.configure_api_settings(
             api_key=resolved_api_key or None,
             model=resolved_model or None,
+            secrets={
+                "OPENROUTER_API_KEY": secret_api_key,
+                "OPENROUTER_MODEL": secret_model,
+            },
         )
     except Exception:
         pass
@@ -154,12 +178,12 @@ def render_sidebar() -> None:
         api_key_input = st.text_input(
             "مفتاح OpenRouter",
             type="password",
-            value=st.session_state.get("openrouter_api_key", ""),
+            value=st.session_state.get("openrouter_api_key", "") or get_secret_value("OPENROUTER_API_KEY", ""),
             help="أدخل المفتاح هنا إذا لم يكن موجودًا في البيئة أو Streamlit secrets.",
         )
         model_input = st.text_input(
             "اسم النموذج",
-            value=st.session_state.get("openrouter_model", OPENROUTER_MODEL),
+            value=st.session_state.get("openrouter_model", "") or get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL),
             help="مثال: openai/gpt-4o-mini",
         )
         if st.button("حفظ الإعدادات", use_container_width=True):
@@ -168,9 +192,10 @@ def render_sidebar() -> None:
             configure_api_keys(api_key=api_key_input, model=model_input)
             st.success("تم حفظ إعدادات النموذج")
 
-        api_status = "متصل" if st.session_state.get("openrouter_api_key", "") else "غير متصل"
+        current_api_key = st.session_state.get("openrouter_api_key", "") or get_secret_value("OPENROUTER_API_KEY", "")
+        api_status = "متصل" if current_api_key else "غير متصل"
         st.markdown(f"**حالة النموذج:** {api_status}")
-        if not st.session_state.get("openrouter_api_key", ""):
+        if not current_api_key:
             st.warning("لم يتم العثور على OPENROUTER_API_KEY. أدخل المفتاح من هنا أو أضفه في البيئة/Streamlit secrets.")
 
         st.divider()
