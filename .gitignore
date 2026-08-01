@@ -17,6 +17,7 @@ chroma_db/
 # data/*.txt
 
 # Streamlit
+.streamlit/
 .streamlit/secrets.toml
 
 # IDE
