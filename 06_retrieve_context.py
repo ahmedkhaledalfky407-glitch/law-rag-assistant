@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from typing import Any
 
 from dotenv import load_dotenv
@@ -10,15 +11,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+@lru_cache(maxsize=32)
+def _get_chroma_client(persist_directory: str, allow_reset: bool = True, anonymized_telemetry: bool = False):
+    """إرجاع نفس العميل لـ ChromaDB داخل العملية لتفادي تعارض الإعدادات."""
+    import chromadb
+    from chromadb.config import Settings
+
+    settings = Settings(allow_reset=allow_reset, anonymized_telemetry=anonymized_telemetry)
+    return chromadb.PersistentClient(path=persist_directory, settings=settings)
+
+
 def _get_collection(query: str, top_k: int = 5) -> list[dict[str, Any]]:
     """استرجاع النتائج من ChromaDB أو إرجاع قائمة فارغة عند الفشل."""
     try:
-        import chromadb
+        persist_directory = os.environ.get("CHROMA_DB_PATH", "./chroma_db")
+        client = _get_chroma_client(persist_directory, allow_reset=True, anonymized_telemetry=False)
     except Exception:
         return []
-
-    persist_directory = os.environ.get("CHROMA_DB_PATH", "./chroma_db")
-    client = chromadb.PersistentClient(path=persist_directory)
     collection = client.get_collection(name=os.environ.get("CHROMA_COLLECTION", "law_rag"))
     results = collection.query(query_texts=[query], n_results=top_k)
     hits: list[dict[str, Any]] = []

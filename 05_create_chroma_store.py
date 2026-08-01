@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from typing import Any
 
 from dotenv import load_dotenv
@@ -10,18 +11,31 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+@lru_cache(maxsize=32)
+def _get_chroma_client(persist_directory: str, allow_reset: bool = True, anonymized_telemetry: bool = False):
+    """إرجاع نفس العميل لـ ChromaDB داخل العملية لتفادي تعارض الإعدادات."""
+    import chromadb
+    from chromadb.config import Settings
+
+    settings = Settings(allow_reset=allow_reset, anonymized_telemetry=anonymized_telemetry)
+    return chromadb.PersistentClient(path=persist_directory, settings=settings)
+
+
 def create_or_update_chroma_store(chunks: list[dict[str, Any]], persist_directory: str = "./chroma_db", collection_name: str = "law_rag", rebuild: bool = False) -> dict[str, Any]:
     """أنشئ أو حدّث collection داخل ChromaDB."""
     try:
-        import chromadb
-        from chromadb.config import Settings
+        client = _get_chroma_client(persist_directory, allow_reset=True, anonymized_telemetry=False)
     except Exception as exc:
         raise RuntimeError(f"ChromaDB غير متوفر: {exc}") from exc
 
-    client = chromadb.PersistentClient(path=persist_directory, settings=Settings(allow_reset=True))
     if rebuild:
         try:
             client.delete_collection(name=collection_name)
+        except Exception:
+            pass
+    else:
+        try:
+            client.get_collection(name=collection_name)
         except Exception:
             pass
 
