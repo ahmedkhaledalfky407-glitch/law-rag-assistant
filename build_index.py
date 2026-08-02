@@ -22,6 +22,12 @@ def load_module(module_name: str, file_name: str):
 
 
 def main() -> None:
+    # تهيئة ChromaManager قبل أي شيء
+    from core.chroma_manager import get_chroma_client, verify_singleton
+    get_chroma_client()
+    info = verify_singleton()
+    print(f"ChromaManager جاهز: {info}")
+
     documents_module = load_module("documents", "01_documents.py")
     preprocessing_module = load_module("preprocessing", "02_preprocessing.py")
     chunking_module = load_module("chunking", "03_chunking.py")
@@ -36,7 +42,6 @@ def main() -> None:
     for text_file in text_files:
         docs = documents_module.load_documents(str(text_file))
         documents.extend(docs)
-
     print(f"تم تحميل {len(documents)} وثيقة")
 
     articles = preprocessing_module.process_documents(documents)
@@ -55,8 +60,8 @@ def main() -> None:
 
     result = chroma_module.create_or_update_chroma_store(
         embedded_chunks,
-        persist_directory="./chroma_db",
-        collection_name="law_rag",
+        persist_directory=os.environ.get("CHROMA_DB_PATH", "./chroma_db"),
+        collection_name=os.environ.get("CHROMA_COLLECTION", "law_rag"),
         rebuild=True,
     )
     print(f"تم إنشاء ChromaDB: {result}")

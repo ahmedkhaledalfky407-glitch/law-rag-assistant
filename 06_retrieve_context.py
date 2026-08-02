@@ -12,20 +12,34 @@ load_dotenv()
 
 
 def _get_collection(query: str, top_k: int = 5) -> list[dict[str, Any]]:
-    """استرجاع النتائج من ChromaDB أو إرجاع قائمة فارغة عند الفشل."""
+    """استرجاع النتائج عبر ChromaManager الموحّد."""
     try:
-        from chroma_client import get_client
-        persist_directory = os.environ.get("CHROMA_DB_PATH", "./chroma_db")
-        client = get_client(persist_directory)
-        collection = client.get_collection(name=os.environ.get("CHROMA_COLLECTION", "law_rag"))
+        from core.chroma_manager import get_collection
+
+        collection = get_collection(
+            collection_name=os.environ.get("CHROMA_COLLECTION", "law_rag"),
+            persist_directory=os.environ.get("CHROMA_DB_PATH", "./chroma_db"),
+        )
     except Exception:
         return []
 
-    results = collection.query(query_texts=[query], n_results=top_k)
+    try:
+        results = collection.query(query_texts=[query], n_results=top_k)
+    except Exception:
+        return []
+
     hits: list[dict[str, Any]] = []
     for index, document in enumerate(results.get("documents", [[]])[0]):
-        metadata = results.get("metadatas", [[]])[0][index] if results.get("metadatas") else {}
-        distance = results.get("distances", [[]])[0][index] if results.get("distances") else None
+        metadata = (
+            results.get("metadatas", [[]])[0][index]
+            if results.get("metadatas")
+            else {}
+        )
+        distance = (
+            results.get("distances", [[]])[0][index]
+            if results.get("distances")
+            else None
+        )
         hits.append(
             {
                 "text": document,
@@ -37,26 +51,28 @@ def _get_collection(query: str, top_k: int = 5) -> list[dict[str, Any]]:
 
 
 def retrieve_context(query: str, top_k: int = 5) -> list[dict[str, Any]]:
-    """إرجاع السياق الأكثر صلة بالسؤال، مع إعادة ترتيب بسيطة بناءً على ذكر المادة."""
+    """إرجاع السياق الأكثر صلة، مع إعادة ترتيب بسيطة بناءً على رقم المادة."""
     results = _get_collection(query, top_k=top_k)
     if not results:
         return []
 
-    article_match = None
+    article_match: str | None = None
     match = re.search(r"المادة\s*(?:رقم\s*)?([\w\s]+)", query)
     if match:
         article_match = match.group(1).strip()
 
     if article_match:
-        ranked = sorted(
+        return sorted(
             results,
             key=lambda item: (
-                1 if str(item.get("source", {}).get("article_number", "")).strip() == article_match else 0,
+                1
+                if str(item.get("source", {}).get("article_number", "")).strip()
+                == article_match
+                else 0,
                 item.get("similarity", 0),
             ),
             reverse=True,
         )
-        return ranked
     return results
 
 

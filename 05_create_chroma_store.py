@@ -16,42 +16,43 @@ def create_or_update_chroma_store(
     collection_name: str = "law_rag",
     rebuild: bool = False,
 ) -> dict[str, Any]:
-    """أنشئ أو حدّث collection داخل ChromaDB."""
-    try:
-        from chroma_client import get_client
-        client = get_client(persist_directory)
-    except Exception as exc:
-        raise RuntimeError(f"ChromaDB غير متوفر: {exc}") from exc
+    """أنشئ أو حدّث collection داخل ChromaDB عبر ChromaManager الموحّد."""
+    from core.chroma_manager import (
+        delete_collection,
+        get_chroma_client,
+        get_or_create_collection,
+    )
+
+    # الـ client الوحيد — لا يُنشأ client جديد هنا أبداً
+    client = get_chroma_client(persist_directory)
 
     if rebuild:
-        try:
-            client.delete_collection(name=collection_name)
-        except Exception:
-            pass
+        delete_collection(collection_name, persist_directory)
 
     has_valid_embeddings = bool(chunks) and all(
         isinstance(chunk.get("embedding"), list) and len(chunk.get("embedding") or []) > 0
         for chunk in chunks
     )
 
-    # حذف collection قديمة إذا كانت embeddings بأبعاد مختلفة
-    try:
-        existing = client.get_collection(name=collection_name)
-        if has_valid_embeddings:
-            client.delete_collection(name=collection_name)
-            existing = None
-    except Exception:
-        existing = None
+    # لو embeddings خارجية → احذف الـ collection القديمة لتجنب تعارض الأبعاد
+    if has_valid_embeddings and not rebuild:
+        try:
+            client.get_collection(name=collection_name)
+            delete_collection(collection_name, persist_directory)
+        except Exception:
+            pass
 
     if has_valid_embeddings:
-        collection = client.get_or_create_collection(name=collection_name, embedding_function=None)
+        collection = client.get_or_create_collection(
+            name=collection_name, embedding_function=None
+        )
     else:
-        collection = client.get_or_create_collection(name=collection_name)
+        collection = get_or_create_collection(collection_name, persist_directory)
 
-    ids = []
-    documents = []
-    embeddings = []
-    metadatas = []
+    ids: list[str] = []
+    documents: list[str] = []
+    embeddings: list[list[float]] = []
+    metadatas: list[dict] = []
 
     for index, chunk in enumerate(chunks):
         text = chunk.get("text", "")
@@ -70,14 +71,32 @@ def create_or_update_chroma_store(
 
     if documents:
         if has_valid_embeddings:
-            collection.add(ids=ids, documents=documents, embeddings=embeddings, metadatas=metadatas)
+            collection.add(
+                ids=ids,
+                documents=documents,
+                embeddings=embeddings,
+                metadatas=metadatas,
+            )
         else:
             collection.add(ids=ids, documents=documents, metadatas=metadatas)
 
-    return {"collection_name": collection_name, "persist_directory": persist_directory, "count": len(documents)}
+    return {
+        "collection_name": collection_name,
+        "persist_directory": persist_directory,
+        "count": len(documents),
+    }
 
 
 if __name__ == "__main__":
-    sample_chunks = [{"text": "المادة الأولى: يبدأ العمل من تاريخ التعيين.", "book": "الأول", "chapter": "الأول", "article_number": "1", "chunk_id": "chunk_1", "source_file": "demo.txt"}]
-    result = create_or_update_chroma_store(sample_chunks, persist_directory="./chroma_db", rebuild=True)
+    sample = [
+        {
+            "text": "المادة الأولى: يبدأ العمل من تاريخ التعيين.",
+            "book": "الأول",
+            "chapter": "الأول",
+            "article_number": "1",
+            "chunk_id": "chunk_1",
+            "source_file": "demo.txt",
+        }
+    ]
+    result = create_or_update_chroma_store(sample, persist_directory="./chroma_db", rebuild=True)
     print(result)

@@ -10,6 +10,16 @@ from typing import Any
 import streamlit as st
 from dotenv import load_dotenv
 
+load_dotenv(override=True)
+
+# ============================================================
+# تهيئة ChromaManager مرة واحدة عند أول import
+# sys.modules يضمن أن هذا لن يُعاد تنفيذه في الـ reruns
+# ============================================================
+from core.chroma_manager import get_chroma_client as _init_chroma_singleton  # noqa: E402
+
+_init_chroma_singleton()  # ينشئ الـ client مرة واحدة ويخزنه
+
 
 def load_module(module_name: str, file_name: str):
     """تحميل وحدة Python من ملف باسم يبدأ برقم."""
@@ -30,28 +40,6 @@ chunking_module = load_module("chunking", "03_chunking.py")
 vector_module = load_module("vector_representation", "04_vector_representation.py")
 chroma_module = load_module("create_chroma_store", "05_create_chroma_store.py")
 
-
-@st.cache_resource
-def _get_chroma_client_cached(persist_directory: str):
-    """تهيئة ChromaDB client مرة واحدة فقط طوال عمر التطبيق."""
-    import chromadb
-    from chromadb.config import Settings
-    settings = Settings(allow_reset=True, anonymized_telemetry=False)
-    return chromadb.PersistentClient(path=persist_directory, settings=settings)
-
-
-def _init_chroma() -> None:
-    """تهيئة الـ client المشترك في chroma_client module."""
-    import importlib
-    import sys
-    # تحميل chroma_client وتعيين الـ client المُخزَّن بـ st.cache_resource
-    if "chroma_client" not in sys.modules:
-        importlib.import_module("chroma_client")
-    chroma_mod = sys.modules["chroma_client"]
-    persist_dir = os.environ.get("CHROMA_DB_PATH", "./chroma_db")
-    chroma_mod._client = _get_chroma_client_cached(persist_dir)
-    chroma_mod._client_path = persist_dir
-
 retrieve_context = retrieve_context_module.retrieve_context
 generate_answer = generate_answer_module.generate_answer
 OPENROUTER_MODEL = generate_answer_module.OPENROUTER_MODEL
@@ -59,8 +47,8 @@ OPENROUTER_MODEL = generate_answer_module.OPENROUTER_MODEL
 st.set_page_config(page_title="مساعد قانون العمل", page_icon="⚖️", layout="wide")
 
 
+# ── Styles ──────────────────────────────────────────────────
 def apply_rtl_style() -> None:
-    """تطبيق CSS بسيط لدعم الاتجاه العربي في الواجهة."""
     st.markdown(
         """
         <style>
@@ -69,32 +57,25 @@ def apply_rtl_style() -> None:
             text-align: right;
             font-family: 'Segoe UI', Tahoma, sans-serif;
         }
-        .block-container {
-            padding-top: 1.5rem;
-        }
-        .stFileUploader {
-            direction: rtl;
-        }
+        .block-container { padding-top: 1.5rem; }
+        .stFileUploader { direction: rtl; }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
 
+# ── Secrets helper ──────────────────────────────────────────
 def get_secret_value(key: str, default: str = "") -> str:
-    """قراءة قيمة من Streamlit secrets أو إرجاع القيمة الافتراضية."""
     try:
         val = str(st.secrets.get(key, default))
-        # تجاهل placeholder
-        if val and val != "your_openrouter_api_key_here":
-            return val
-        return default
+        return val if val and val != "your_openrouter_api_key_here" else default
     except Exception:
         return default
 
 
+# ── Session state ────────────────────────────────────────────
 def initialize_session() -> None:
-    """تهيئة حالة الجلسة للحفاظ على سجل المحادثة."""
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "question_count" not in st.session_state:
@@ -102,13 +83,19 @@ def initialize_session() -> None:
     if "uploaded_sources" not in st.session_state:
         st.session_state.uploaded_sources = []
     if "openrouter_api_key" not in st.session_state:
-        st.session_state.openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "") or get_secret_value("OPENROUTER_API_KEY", "")
+        st.session_state.openrouter_api_key = (
+            os.environ.get("OPENROUTER_API_KEY", "")
+            or get_secret_value("OPENROUTER_API_KEY", "")
+        )
     if "openrouter_model" not in st.session_state:
-        st.session_state.openrouter_model = os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL) or get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL)
+        st.session_state.openrouter_model = (
+            os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
+            or get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL)
+        )
 
 
+# ── API key management ───────────────────────────────────────
 def configure_api_keys(api_key: str | None = None, model: str | None = None) -> None:
-    """قراءة المفتاح من البيئة أو Streamlit secrets أو إدخال المستخدم."""
     try:
         secret_api_key = get_secret_value("OPENROUTER_API_KEY", "")
         secret_model = get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL)
@@ -149,7 +136,6 @@ def configure_api_keys(api_key: str | None = None, model: str | None = None) -> 
 
 
 def _save_env_var(key: str, value: str) -> None:
-    """Save or update a key in the local .env file and set it in the current process env."""
     try:
         env_path = Path(__file__).with_name(".env")
         lines: list[str] = []
@@ -170,8 +156,8 @@ def _save_env_var(key: str, value: str) -> None:
         pass
 
 
+# ── File upload ──────────────────────────────────────────────
 def process_uploaded_file(uploaded_file) -> dict[str, Any]:
-    """معالجة ملف مرفوع وإضافته إلى قاعدة المعرفة."""
     try:
         temp_path = Path("data") / uploaded_file.name
         temp_path.parent.mkdir(exist_ok=True)
@@ -207,99 +193,8 @@ def process_uploaded_file(uploaded_file) -> dict[str, Any]:
         return {"success": False, "message": f"حدث خطأ أثناء المعالجة: {exc}"}
 
 
-def render_sidebar() -> None:
-    """عرض الشريط الجانبي مع معلومات المشروع وأزرار التحكم."""
-    with st.sidebar:
-        st.title("⚖️ مساعد قانون العمل")
-        st.caption("مساعد ذكي يستند إلى نص قانون العمل المصري رقم 14 لسنة 2025")
-        st.metric("عدد الأسئلة", st.session_state.question_count)
-        st.divider()
-
-        st.subheader("⚙️ إعدادات النموذج")
-        api_key_input = st.text_input(
-            "مفتاح OpenRouter API",
-            value=st.session_state.get("openrouter_api_key", "") or get_secret_value("OPENROUTER_API_KEY", ""),
-            type="password",
-            help="أدخل المفتاح هنا إذا لم يكن موجودًا في البيئة أو Streamlit secrets.",
-        )
-        model_input = st.text_input(
-            "اسم النموذج",
-            value=st.session_state.get("openrouter_model", "") or get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL),
-            help="مثال: openai/gpt-4o-mini",
-        )
-
-        cols = st.columns([1, 1])
-        with cols[0]:
-            if st.button("حفظ الإعدادات", use_container_width=True):
-                if api_key_input:
-                    _save_env_var("OPENROUTER_API_KEY", api_key_input)
-                    _save_env_var("OPENROUTER_MODEL", model_input or OPENROUTER_MODEL)
-                    configure_api_keys(api_key=api_key_input, model=model_input or OPENROUTER_MODEL)
-                    st.success("تم حفظ مفتاح API وإعدادات النموذج")
-                    st.rerun()
-                else:
-                    st.error("أدخل مفتاح API صالحًا قبل الحفظ.")
-        with cols[1]:
-            if st.button("اختبار الاتصال", use_container_width=True):
-                with st.spinner("جارٍ اختبار الاتصال بالنموذج..."):
-                    try:
-                        test_res = generate_answer_module.generate_answer("اختبار اتصال", [])
-                        if test_res and not test_res.startswith("تعذر") and "لم يتم توفير مفتاح" not in test_res:
-                            st.success("نجح الاتصال: النموذج يستجيب")
-                        else:
-                            st.error(f"فشل الاتصال: {test_res}")
-                    except Exception as exc:
-                        st.error(f"فشل اختبار الاتصال: {exc}")
-
-        if st.button("مسح المحادثة", use_container_width=True):
-            st.session_state.messages = []
-            st.session_state.question_count = 0
-            st.rerun()
-
-        current_api_key = st.session_state.get("openrouter_api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")
-        api_status = "✅ متصل" if current_api_key else "❌ غير متصل"
-        st.markdown(f"**حالة النموذج:** {api_status}")
-        if not current_api_key:
-            st.warning("لم يتم العثور على OPENROUTER_API_KEY. أدخل المفتاح من هنا أو أضفه في البيئة/Streamlit secrets.")
-
-        st.divider()
-        st.subheader("📂 رفع مصادر جديدة")
-        st.caption("ارفع ملفات نصية (txt) لإضافتها إلى قاعدة المعرفة")
-        uploaded_file = st.file_uploader(
-            "اختر ملف نصي",
-            type=["txt"],
-            help="ارفع ملف نصي يحتوي على مواد قانونية بصيغة: المادة رقم X: النص",
-        )
-        if uploaded_file is not None:
-            if st.button("إضافة المصدر", use_container_width=True, type="primary"):
-                with st.spinner("جاري معالجة الملف وإضافته إلى قاعدة المعرفة..."):
-                    result = process_uploaded_file(uploaded_file)
-                    if result["success"]:
-                        st.session_state.uploaded_sources.append(uploaded_file.name)
-                        st.success(result["message"])
-                        st.rerun()
-                    else:
-                        st.error(result["message"])
-
-        if st.session_state.uploaded_sources:
-            st.divider()
-            st.subheader("📚 المصادر المضافة")
-            for source in st.session_state.uploaded_sources:
-                st.markdown(f"- ✅ {source}")
-
-
-def render_welcome_message() -> None:
-    """عرض رسالة ترحيبية عند أول تشغيل."""
-    if not st.session_state.messages:
-        st.chat_message("assistant").write(
-            "أهلاً بك. أنا مساعد متخصص في قانون العمل المصري لعام 2025. "
-            "يمكنك سؤالي عن أي موضوع قانوني، وسأجيب بناءً على قاعدة المعرفة المتاحة. "
-            "يمكنك أيضًا رفع ملفات نصية جديدة من الشريط الجانبي لإثراء قاعدة المعرفة."
-        )
-
-
+# ── Connection status banner ─────────────────────────────────
 def render_connection_status() -> None:
-    """عرض شريط حالة الاتصال في أعلى الصفحة."""
     api_key = st.session_state.get("openrouter_api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")
     model = st.session_state.get("openrouter_model", "") or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
 
@@ -310,10 +205,7 @@ def render_connection_status() -> None:
         else:
             st.error("🔴 النموذج غير متصل")
     with col2:
-        if api_key:
-            st.caption(f"**النموذج:** `{model}`")
-        else:
-            st.caption("أدخل مفتاح OpenRouter API من الشريط الجانبي للبدء")
+        st.caption(f"**النموذج:** `{model}`" if api_key else "أدخل مفتاح OpenRouter API من الشريط الجانبي")
     with col3:
         if st.button("🔌 اختبار الاتصال", use_container_width=True):
             if not api_key:
@@ -331,14 +223,100 @@ def render_connection_status() -> None:
     st.divider()
 
 
+# ── Sidebar ──────────────────────────────────────────────────
+def render_sidebar() -> None:
+    with st.sidebar:
+        st.title("⚖️ مساعد قانون العمل")
+        st.caption("مساعد ذكي يستند إلى نص قانون العمل المصري رقم 14 لسنة 2025")
+        st.metric("عدد الأسئلة", st.session_state.question_count)
+        st.divider()
+
+        st.subheader("⚙️ إعدادات النموذج")
+        api_key_input = st.text_input(
+            "مفتاح OpenRouter API",
+            value=st.session_state.get("openrouter_api_key", "") or get_secret_value("OPENROUTER_API_KEY", ""),
+            type="password",
+        )
+        model_input = st.text_input(
+            "اسم النموذج",
+            value=st.session_state.get("openrouter_model", "") or get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL),
+        )
+
+        cols = st.columns([1, 1])
+        with cols[0]:
+            if st.button("حفظ الإعدادات", use_container_width=True):
+                if api_key_input:
+                    _save_env_var("OPENROUTER_API_KEY", api_key_input)
+                    _save_env_var("OPENROUTER_MODEL", model_input or OPENROUTER_MODEL)
+                    configure_api_keys(api_key=api_key_input, model=model_input or OPENROUTER_MODEL)
+                    st.success("تم الحفظ ✓")
+                    st.rerun()
+                else:
+                    st.error("أدخل مفتاح API صالحًا.")
+        with cols[1]:
+            if st.button("اختبار", use_container_width=True):
+                with st.spinner("جارٍ الاختبار..."):
+                    try:
+                        test_res = generate_answer_module.generate_answer("اختبار", [])
+                        if test_res and "تعذر" not in test_res and "لم يتم" not in test_res:
+                            st.success("✅ يعمل")
+                        else:
+                            st.error(f"❌ {test_res}")
+                    except Exception as exc:
+                        st.error(f"❌ {exc}")
+
+        if st.button("مسح المحادثة", use_container_width=True):
+            st.session_state.messages = []
+            st.session_state.question_count = 0
+            st.rerun()
+
+        current_key = st.session_state.get("openrouter_api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")
+        st.markdown(f"**الحالة:** {'✅ متصل' if current_key else '❌ غير متصل'}")
+        if not current_key:
+            st.warning("أضف OPENROUTER_API_KEY في البيئة أو الشريط الجانبي.")
+
+        st.divider()
+        st.subheader("📂 رفع مصادر جديدة")
+        uploaded_file = st.file_uploader(
+            "اختر ملف نصي",
+            type=["txt"],
+            help="ملف يحتوي على مواد قانونية بصيغة: المادة رقم X: النص",
+        )
+        if uploaded_file is not None:
+            if st.button("إضافة المصدر", use_container_width=True, type="primary"):
+                with st.spinner("جاري المعالجة..."):
+                    result = process_uploaded_file(uploaded_file)
+                    if result["success"]:
+                        st.session_state.uploaded_sources.append(uploaded_file.name)
+                        st.success(result["message"])
+                        st.rerun()
+                    else:
+                        st.error(result["message"])
+
+        if st.session_state.uploaded_sources:
+            st.divider()
+            st.subheader("📚 المصادر المضافة")
+            for source in st.session_state.uploaded_sources:
+                st.markdown(f"- ✅ {source}")
+
+
+# ── Welcome ──────────────────────────────────────────────────
+def render_welcome_message() -> None:
+    if not st.session_state.messages:
+        st.chat_message("assistant").write(
+            "أهلاً بك. أنا مساعد متخصص في قانون العمل المصري لعام 2025. "
+            "يمكنك سؤالي عن أي موضوع قانوني، وسأجيب بناءً على قاعدة المعرفة المتاحة. "
+            "يمكنك أيضًا رفع ملفات نصية جديدة من الشريط الجانبي لإثراء قاعدة المعرفة."
+        )
+
+
+# ── Main ─────────────────────────────────────────────────────
 def main() -> None:
-    """المنطق الرئيسي للواجهة."""
     apply_rtl_style()
     initialize_session()
     configure_api_keys()
-    _init_chroma()
-    render_sidebar()
     render_connection_status()
+    render_sidebar()
     render_welcome_message()
 
     if prompt := st.chat_input("اكتب سؤالك عن قانون العمل المصري..."):
@@ -352,7 +330,7 @@ def main() -> None:
                 context_chunks = retrieve_context(prompt, top_k=5)
                 answer = generate_answer(prompt, context_chunks)
             except Exception as exc:
-                answer = f"تعذر معالجة الطلب. يرجى المحاولة لاحقًا. التفاصيل: {exc}"
+                answer = f"تعذر معالجة الطلب. التفاصيل: {exc}"
 
         st.chat_message("assistant").write(answer)
         with st.expander("المصادر المستخدمة", expanded=True):
@@ -360,10 +338,13 @@ def main() -> None:
                 for item in context_chunks:
                     source = item.get("source", {})
                     st.write(
-                        f"- المادة {source.get('article_number', 'غير محدد')} | الباب: {source.get('chapter', 'غير محدد')} | الكتاب: {source.get('book', 'غير محدد')} | التشابه: {item.get('similarity', 0):.2f}"
+                        f"- المادة {source.get('article_number', 'غير محدد')} | "
+                        f"الباب: {source.get('chapter', 'غير محدد')} | "
+                        f"الكتاب: {source.get('book', 'غير محدد')} | "
+                        f"التشابه: {item.get('similarity', 0):.2f}"
                     )
             else:
-                st.write("لا توجد مصادر متاحة حاليًا. يمكنك رفع ملفات جديدة من الشريط الجانبي.")
+                st.write("لا توجد مصادر. يمكنك رفع ملفات جديدة من الشريط الجانبي.")
 
         st.session_state.messages.append({"role": "assistant", "content": answer})
 
