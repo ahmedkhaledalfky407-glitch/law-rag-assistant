@@ -59,6 +59,18 @@ def apply_rtl_style() -> None:
     )
 
 
+def get_secret_value(key: str, default: str = "") -> str:
+    """قراءة قيمة من Streamlit secrets أو إرجاع القيمة الافتراضية."""
+    try:
+        val = str(st.secrets.get(key, default))
+        # تجاهل placeholder
+        if val and val != "your_openrouter_api_key_here":
+            return val
+        return default
+    except Exception:
+        return default
+
+
 def initialize_session() -> None:
     """تهيئة حالة الجلسة للحفاظ على سجل المحادثة."""
     if "messages" not in st.session_state:
@@ -67,18 +79,49 @@ def initialize_session() -> None:
         st.session_state.question_count = 0
     if "uploaded_sources" not in st.session_state:
         st.session_state.uploaded_sources = []
+    if "openrouter_api_key" not in st.session_state:
+        st.session_state.openrouter_api_key = os.environ.get("OPENROUTER_API_KEY", "") or get_secret_value("OPENROUTER_API_KEY", "")
+    if "openrouter_model" not in st.session_state:
+        st.session_state.openrouter_model = os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL) or get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL)
 
 
-def configure_api_keys() -> None:
-    """قراءة المفتاح من البيئة أو Streamlit secrets مع fallback واضح."""
+def configure_api_keys(api_key: str | None = None, model: str | None = None) -> None:
+    """قراءة المفتاح من البيئة أو Streamlit secrets أو إدخال المستخدم."""
     try:
-        if not os.environ.get("OPENROUTER_API_KEY", ""):
-            _key = st.secrets.get("OPENROUTER_API_KEY", "")
-            # تجاهل القيمة الافتراضية placeholder
-            if _key and _key != "your_openrouter_api_key_here":
-                os.environ["OPENROUTER_API_KEY"] = _key
-        if not os.environ.get("OPENROUTER_MODEL", ""):
-            os.environ["OPENROUTER_MODEL"] = st.secrets.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
+        secret_api_key = get_secret_value("OPENROUTER_API_KEY", "")
+        secret_model = get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL)
+
+        resolved_api_key = (
+            api_key
+            or st.session_state.get("openrouter_api_key", "")
+            or os.environ.get("OPENROUTER_API_KEY", "")
+            or secret_api_key
+        )
+        resolved_model = (
+            model
+            or st.session_state.get("openrouter_model", "")
+            or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
+            or secret_model
+        )
+
+        if api_key is not None:
+            st.session_state.openrouter_api_key = api_key
+        if model is not None:
+            st.session_state.openrouter_model = model
+
+        if resolved_api_key:
+            os.environ["OPENROUTER_API_KEY"] = resolved_api_key
+        if resolved_model:
+            os.environ["OPENROUTER_MODEL"] = resolved_model
+
+        generate_answer_module.configure_api_settings(
+            api_key=resolved_api_key or None,
+            model=resolved_model or None,
+            secrets={
+                "OPENROUTER_API_KEY": secret_api_key,
+                "OPENROUTER_MODEL": secret_model,
+            },
+        )
     except Exception:
         pass
 
@@ -102,37 +145,30 @@ def _save_env_var(key: str, value: str) -> None:
         os.environ[key] = value
         load_dotenv(str(env_path), override=True)
     except Exception:
-        # Best-effort; do not crash the app on save failure
         pass
 
 
 def process_uploaded_file(uploaded_file) -> dict[str, Any]:
     """معالجة ملف مرفوع وإضافته إلى قاعدة المعرفة."""
     try:
-        # حفظ الملف مؤقتًا
         temp_path = Path("data") / uploaded_file.name
         temp_path.parent.mkdir(exist_ok=True)
         temp_path.write_bytes(uploaded_file.getvalue())
 
-        # 1. تحميل المستند
         documents = documents_module.load_documents(str(temp_path))
         if not documents or not documents[0].get("raw_text"):
             return {"success": False, "message": "تعذر قراءة الملف. تأكد من أنه ملف نصي صالح."}
 
-        # 2. المعالجة والتنظيف
         articles = preprocessing_module.process_documents(documents)
         if not articles:
             return {"success": False, "message": "لم يتم العثور على مواد قانونية في الملف."}
 
-        # 3. تقسيم إلى chunks
         chunks = chunking_module.chunk_articles(articles)
         if not chunks:
             return {"success": False, "message": "لم يتم إنشاء chunks من الملف."}
 
-        # 4. إنشاء embeddings
         embedded_chunks = vector_module.build_embeddings(chunks)
 
-        # 5. إضافة إلى ChromaDB
         result = chroma_module.create_or_update_chroma_store(
             embedded_chunks,
             persist_directory=os.environ.get("CHROMA_DB_PATH", "./chroma_db"),
@@ -156,17 +192,29 @@ def render_sidebar() -> None:
         st.caption("مساعد ذكي يستند إلى نص قانون العمل المصري رقم 14 لسنة 2025")
         st.metric("عدد الأسئلة", st.session_state.question_count)
         st.divider()
+
         st.subheader("⚙️ إعدادات النموذج")
-        api_key_input = st.text_input("مفتاح OpenRouter API", value=os.environ.get("OPENROUTER_API_KEY", ""), type="password")
-        model_input = st.text_input("اسم النموذج", value=os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL))
+        api_key_input = st.text_input(
+            "مفتاح OpenRouter API",
+            value=st.session_state.get("openrouter_api_key", "") or get_secret_value("OPENROUTER_API_KEY", ""),
+            type="password",
+            help="أدخل المفتاح هنا إذا لم يكن موجودًا في البيئة أو Streamlit secrets.",
+        )
+        model_input = st.text_input(
+            "اسم النموذج",
+            value=st.session_state.get("openrouter_model", "") or get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL),
+            help="مثال: openai/gpt-4o-mini",
+        )
+
         cols = st.columns([1, 1])
         with cols[0]:
-            if st.button("حفظ مفتاح API", use_container_width=True):
+            if st.button("حفظ الإعدادات", use_container_width=True):
                 if api_key_input:
                     _save_env_var("OPENROUTER_API_KEY", api_key_input)
                     _save_env_var("OPENROUTER_MODEL", model_input or OPENROUTER_MODEL)
-                    st.success("تم حفظ مفتاح API وإعدادات النموذج في .env")
-                    st.experimental_rerun()
+                    configure_api_keys(api_key=api_key_input, model=model_input or OPENROUTER_MODEL)
+                    st.success("تم حفظ مفتاح API وإعدادات النموذج")
+                    st.rerun()
                 else:
                     st.error("أدخل مفتاح API صالحًا قبل الحفظ.")
         with cols[1]:
@@ -186,10 +234,11 @@ def render_sidebar() -> None:
             st.session_state.question_count = 0
             st.rerun()
 
-        api_status = "متصل" if os.environ.get("OPENROUTER_API_KEY", "") else "غير متصل"
+        current_api_key = st.session_state.get("openrouter_api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")
+        api_status = "✅ متصل" if current_api_key else "❌ غير متصل"
         st.markdown(f"**حالة النموذج:** {api_status}")
-        if not os.environ.get("OPENROUTER_API_KEY", ""):
-            st.warning("لم يتم العثور على OPENROUTER_API_KEY. أضف المفتاح في البيئة أو في Streamlit secrets قبل استخدام النموذج.")
+        if not current_api_key:
+            st.warning("لم يتم العثور على OPENROUTER_API_KEY. أدخل المفتاح من هنا أو أضفه في البيئة/Streamlit secrets.")
 
         st.divider()
         st.subheader("📂 رفع مصادر جديدة")
@@ -235,15 +284,15 @@ def main() -> None:
     render_sidebar()
     render_welcome_message()
 
-    if not os.environ.get("OPENROUTER_API_KEY", ""):
-        st.info("الواجهة جاهزة، لكن الإرسال إلى النموذج يتطلب مفتاح OpenRouter. سيتم عرض رسالة بديلة إذا لم يتوفر المفتاح.")
+    if not (st.session_state.get("openrouter_api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")):
+        st.info("الواجهة جاهزة، لكن الإرسال إلى النموذج يتطلب مفتاح OpenRouter. أدخله من الشريط الجانبي.")
 
     if prompt := st.chat_input("اكتب سؤالك عن قانون العمل المصري..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.session_state.question_count += 1
         st.chat_message("user").write(prompt)
 
-        context_chunks: list = []
+        context_chunks: list[dict[str, Any]] = []
         with st.spinner("جاري استرجاع السياق وإعداد الإجابة..."):
             try:
                 context_chunks = retrieve_context(prompt, top_k=5)
