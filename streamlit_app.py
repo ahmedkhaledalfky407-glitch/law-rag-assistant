@@ -30,6 +30,28 @@ chunking_module = load_module("chunking", "03_chunking.py")
 vector_module = load_module("vector_representation", "04_vector_representation.py")
 chroma_module = load_module("create_chroma_store", "05_create_chroma_store.py")
 
+
+@st.cache_resource
+def _get_chroma_client_cached(persist_directory: str):
+    """تهيئة ChromaDB client مرة واحدة فقط طوال عمر التطبيق."""
+    import chromadb
+    from chromadb.config import Settings
+    settings = Settings(allow_reset=True, anonymized_telemetry=False)
+    return chromadb.PersistentClient(path=persist_directory, settings=settings)
+
+
+def _init_chroma() -> None:
+    """تهيئة الـ client المشترك في chroma_client module."""
+    import importlib
+    import sys
+    # تحميل chroma_client وتعيين الـ client المُخزَّن بـ st.cache_resource
+    if "chroma_client" not in sys.modules:
+        importlib.import_module("chroma_client")
+    chroma_mod = sys.modules["chroma_client"]
+    persist_dir = os.environ.get("CHROMA_DB_PATH", "./chroma_db")
+    chroma_mod._client = _get_chroma_client_cached(persist_dir)
+    chroma_mod._client_path = persist_dir
+
 retrieve_context = retrieve_context_module.retrieve_context
 generate_answer = generate_answer_module.generate_answer
 OPENROUTER_MODEL = generate_answer_module.OPENROUTER_MODEL
@@ -314,6 +336,7 @@ def main() -> None:
     apply_rtl_style()
     initialize_session()
     configure_api_keys()
+    _init_chroma()
     render_sidebar()
     render_connection_status()
     render_welcome_message()
