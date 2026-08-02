@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import streamlit as st
+from dotenv import load_dotenv
 
 
 def load_module(module_name: str, file_name: str):
@@ -72,10 +73,36 @@ def configure_api_keys() -> None:
     """قراءة المفتاح من البيئة أو Streamlit secrets مع fallback واضح."""
     try:
         if not os.environ.get("OPENROUTER_API_KEY", ""):
-            os.environ["OPENROUTER_API_KEY"] = st.secrets.get("OPENROUTER_API_KEY", "")
+            _key = st.secrets.get("OPENROUTER_API_KEY", "")
+            # تجاهل القيمة الافتراضية placeholder
+            if _key and _key != "your_openrouter_api_key_here":
+                os.environ["OPENROUTER_API_KEY"] = _key
         if not os.environ.get("OPENROUTER_MODEL", ""):
             os.environ["OPENROUTER_MODEL"] = st.secrets.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
     except Exception:
+        pass
+
+
+def _save_env_var(key: str, value: str) -> None:
+    """Save or update a key in the local .env file and set it in the current process env."""
+    try:
+        env_path = Path(__file__).with_name(".env")
+        lines: list[str] = []
+        if env_path.exists():
+            lines = env_path.read_text(encoding="utf-8").splitlines()
+        updated = False
+        for i, line in enumerate(lines):
+            if line.strip().startswith(f"{key}="):
+                lines[i] = f"{key}={value}"
+                updated = True
+                break
+        if not updated:
+            lines.append(f"{key}={value}")
+        env_path.write_text("\n".join(lines), encoding="utf-8")
+        os.environ[key] = value
+        load_dotenv(str(env_path), override=True)
+    except Exception:
+        # Best-effort; do not crash the app on save failure
         pass
 
 
@@ -128,6 +155,32 @@ def render_sidebar() -> None:
         st.title("⚖️ مساعد قانون العمل")
         st.caption("مساعد ذكي يستند إلى نص قانون العمل المصري رقم 14 لسنة 2025")
         st.metric("عدد الأسئلة", st.session_state.question_count)
+        st.divider()
+        st.subheader("⚙️ إعدادات النموذج")
+        api_key_input = st.text_input("مفتاح OpenRouter API", value=os.environ.get("OPENROUTER_API_KEY", ""), type="password")
+        model_input = st.text_input("اسم النموذج", value=os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL))
+        cols = st.columns([1, 1])
+        with cols[0]:
+            if st.button("حفظ مفتاح API", use_container_width=True):
+                if api_key_input:
+                    _save_env_var("OPENROUTER_API_KEY", api_key_input)
+                    _save_env_var("OPENROUTER_MODEL", model_input or OPENROUTER_MODEL)
+                    st.success("تم حفظ مفتاح API وإعدادات النموذج في .env")
+                    st.experimental_rerun()
+                else:
+                    st.error("أدخل مفتاح API صالحًا قبل الحفظ.")
+        with cols[1]:
+            if st.button("اختبار الاتصال", use_container_width=True):
+                with st.spinner("جارٍ اختبار الاتصال بالنموذج..."):
+                    try:
+                        test_res = generate_answer_module.generate_answer("اختبار اتصال", [])
+                        if test_res and not test_res.startswith("تعذر") and "لم يتم توفير مفتاح" not in test_res:
+                            st.success("نجح الاتصال: النموذج يستجيب")
+                        else:
+                            st.error(f"فشل الاتصال: {test_res}")
+                    except Exception as exc:
+                        st.error(f"فشل اختبار الاتصال: {exc}")
+
         if st.button("مسح المحادثة", use_container_width=True):
             st.session_state.messages = []
             st.session_state.question_count = 0
@@ -190,6 +243,7 @@ def main() -> None:
         st.session_state.question_count += 1
         st.chat_message("user").write(prompt)
 
+        context_chunks: list = []
         with st.spinner("جاري استرجاع السياق وإعداد الإجابة..."):
             try:
                 context_chunks = retrieve_context(prompt, top_k=5)

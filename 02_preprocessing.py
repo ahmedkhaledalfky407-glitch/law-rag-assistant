@@ -25,33 +25,43 @@ def extract_hierarchy(raw_text: str) -> list[dict[str, Any]]:
     articles: list[dict[str, Any]] = []
     current_book = None
     current_chapter = None
+    current_article = None
 
     for line in cleaned.splitlines():
         if not line.strip():
             continue
-        book_match = re.search(r"الكتاب\s+([\w\s]+)", line)
+        book_match = re.match(r"^الكتاب\s+([\w\s]+)$", line)
         if book_match:
             current_book = book_match.group(1).strip()
             continue
 
-        chapter_match = re.search(r"الباب\s+([\w\s]+)", line)
+        chapter_match = re.match(r"^الباب\s+([\w\s]+)$", line)
         if chapter_match:
             current_chapter = chapter_match.group(1).strip()
             continue
 
-        article_match = re.search(r"المادة\s*(?:رقم\s*)?([\w\s]+)", line)
+        article_match = re.match(r"^المادة\s*(?:رقم\s*)?(.+?)(?:\s*[:\-]|$)", line)
         if article_match:
+            if current_article is not None:
+                articles.append(current_article)
             article_number = article_match.group(1).strip()
-            article_text = line.replace(article_match.group(0), "", 1).strip()
-            articles.append(
-                {
-                    "book": current_book,
-                    "chapter": current_chapter,
-                    "article_number": article_number,
-                    "article_text": article_text,
-                }
-            )
+            remaining_text = line[article_match.end():].strip()
+            current_article = {
+                "book": current_book,
+                "chapter": current_chapter,
+                "article_number": article_number,
+                "article_text": remaining_text,
+            }
+            continue
 
+        if current_article is not None:
+            if current_article["article_text"]:
+                current_article["article_text"] += "\n" + line
+            else:
+                current_article["article_text"] = line
+
+    if current_article is not None:
+        articles.append(current_article)
     if not articles:
         articles.append(
             {

@@ -31,24 +31,28 @@ def create_local_embedding(text: str) -> list[float]:
     return values
 
 
+def create_embedding(text: str) -> list[float]:
+    """إنشاء embedding لنص واحد باستخدام الموفر المحدد في البيئة."""
+    provider, model_name = get_embedding_provider()
+    if provider == "openai":
+        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY مطلوب عند استخدام EMBEDDING_PROVIDER=openai")
+        from openai import OpenAI
+
+        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+        response = client.embeddings.create(model=model_name, input=text)
+        return response.data[0].embedding
+    return create_local_embedding(text)
+
+
 def build_embeddings(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """أضف embedding لكل chunk، مع دعم local fallback دون الاعتماد على مفتاح API."""
+    """أضف embedding لكل chunk، مع دعم provider محلي أو OpenAI/OpenRouter."""
     provider, model_name = get_embedding_provider()
     embedded_chunks: list[dict[str, Any]] = []
     for chunk in chunks:
         text = chunk.get("text", "")
-        try:
-            if provider == "openai" or os.environ.get("OPENROUTER_API_KEY"):
-                from openai import OpenAI
-
-                client = OpenAI(api_key=os.environ.get("OPENROUTER_API_KEY", ""), base_url="https://openrouter.ai/api/v1")
-                response = client.embeddings.create(model=model_name, input=text)
-                vector = response.data[0].embedding
-            else:
-                vector = create_local_embedding(text)
-        except Exception:
-            vector = create_local_embedding(text)
-
+        vector = create_embedding(text)
         embedded_chunks.append({**chunk, "embedding": vector, "embedding_provider": provider, "embedding_model": model_name})
     return embedded_chunks
 

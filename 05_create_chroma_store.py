@@ -30,7 +30,17 @@ def create_or_update_chroma_store(chunks: list[dict[str, Any]], persist_director
         for chunk in chunks
     )
 
+    try:
+        collection = client.get_collection(name=collection_name)
+    except Exception:
+        collection = None
+
     if has_valid_embeddings:
+        if collection is not None:
+            try:
+                client.delete_collection(name=collection_name)
+            except Exception:
+                pass
         collection = client.get_or_create_collection(name=collection_name, embedding_function=None)
     else:
         collection = client.get_or_create_collection(name=collection_name)
