@@ -159,8 +159,10 @@ def _save_env_var(key: str, value: str) -> None:
 # ── File upload ──────────────────────────────────────────────
 def process_uploaded_file(uploaded_file) -> dict[str, Any]:
     try:
-        temp_path = Path("data") / uploaded_file.name
-        temp_path.parent.mkdir(exist_ok=True)
+        # حفظ الملف بشكل دائم في data/
+        data_dir = Path(__file__).with_name("data")
+        data_dir.mkdir(exist_ok=True)
+        temp_path = data_dir / uploaded_file.name
         temp_path.write_bytes(uploaded_file.getvalue())
 
         documents = documents_module.load_documents(str(temp_path))
@@ -181,11 +183,12 @@ def process_uploaded_file(uploaded_file) -> dict[str, Any]:
             embedded_chunks,
             persist_directory=os.environ.get("CHROMA_DB_PATH", "./chroma_db"),
             collection_name=os.environ.get("CHROMA_COLLECTION", "law_rag"),
+            rebuild=False,  # نضيف فوق الموجود
         )
 
         return {
             "success": True,
-            "message": f"تمت إضافة الملف بنجاح: {len(articles)} مادة، {len(chunks)} chunk",
+            "message": f"✅ تمت إضافة '{uploaded_file.name}': {len(articles)} مادة، {len(chunks)} chunk",
             "articles_count": len(articles),
             "chunks_count": len(chunks),
         }

@@ -55,15 +55,24 @@ def get_api_config() -> tuple[str, str]:
 configure_api_settings()
 
 
-def build_system_prompt() -> str:
-    """بناء system prompt عربي مرن يجمع بين السياق القانوني والمعرفة العامة."""
-    return (
-        "أنت مساعد قانوني عربي ودود متخصص في قانون العمل المصري. "
-        "أجب بشكل واضح ومباشر، وركز أولًا على السياق القانوني المتاح، لكن لا تتردد في استخدام معرفتك العامة إذا كان السياق غير كافٍ. "
-        "اكتب بالعربية البسيطة والفصحى مع شرح مناسب. "
-        "إذا كانت هناك مادة قانونية مناسبة في السياق، اذكرها بشكل بسيط مثل: 'وفقًا للمادة 26' أو 'في النص القانوني'. "
-        "إذا لم يكن السؤال واضحًا أو مبهمًا، اعترف بذلك بوضوح وقدم 2-3 أسئلة مقترحة تساعد على توضيح المطلوب. "
-        "إذا لم يوجد سياق كافٍ، أجب بشكل عام وقل بوضوح أن الإجابة عامة وليست نصًا قانونيًا مباشرًا."
+def build_system_prompt(has_context: bool = False) -> str:
+    """بناء system prompt عربي يختلف بحسب وجود سياق أو عدمه."""
+    base = (
+        "أنت مساعد قانوني عربي متخصص في القوانين المصرية.\n"
+        "اكتب بالعربية الفصحى البسيطة وكن دقيقاً في النصوص القانونية.\n"
+        "اذكر رقم المادة صراحةً عندما تستشهد بها، مثل: 'وفقًا للمادة 26'.\n"
+    )
+    if has_context:
+        return base + (
+            "لديك سياق قانوني محدد مسترجع من قاعدة المعرفة — يجب أن تعتمد عليه أساساً في إجابتك.\n"
+            "اقتبس منه مباشرة وأشر إلى أرقام المواد الواردة فيه.\n"
+            "لا تتجاهل السياق المقدم ولا تستبدله بمعلوماتك العامة إذا كان كافياً.\n"
+            "إذا كان السياق جزئياً، أكمله من معرفتك مع الإشارة لذلك."
+        )
+    return base + (
+        "لم يُعثر على نصوص قانونية محددة في قاعدة المعرفة لهذا السؤال.\n"
+        "أجب بناءً على معرفتك العامة بالقانون المصري مع الإشارة إلى أن الإجابة عامة.\n"
+        "إذا كان السؤال غير واضح، اطلب توضيحاً واقترح 2-3 أسئلة تساعد المستخدم."
     )
 
 
@@ -80,17 +89,25 @@ def generate_answer(query: str, context_chunks: list[dict[str, Any]]) -> str:
     if not api_key:
         return "لم يتم توفير مفتاح OpenRouter. أضف المفتاح في البيئة أو في Streamlit secrets أو أدخله من الشريط الجانبي."
 
+    has_context = bool(context_chunks)
     context_text = "\n\n".join(
-        [f"المادة {chunk.get('source', {}).get('article_number', 'غير محدد')}: {chunk.get('text', '')}" for chunk in context_chunks]
+        [
+            f"[مادة {chunk.get('source', {}).get('article_number', 'غير محدد')}]\n{chunk.get('text', '')}"
+            for chunk in context_chunks
+        ]
     )
+
+    user_message = f"السؤال: {query}"
+    if context_text:
+        user_message += f"\n\n--- السياق القانوني المسترجع ---\n{context_text}\n--- نهاية السياق ---"
 
     try:
         client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
         response = client.chat.completions.create(
             model=model_name,
             messages=[
-                {"role": "system", "content": build_system_prompt()},
-                {"role": "user", "content": f"السؤال: {query}\n\nالسياق:\n{context_text}"},
+                {"role": "system", "content": build_system_prompt(has_context=has_context)},
+                {"role": "user", "content": user_message},
             ],
             temperature=0.2,
         )
