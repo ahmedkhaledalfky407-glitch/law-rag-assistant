@@ -276,16 +276,47 @@ def render_welcome_message() -> None:
         )
 
 
+def render_connection_status() -> None:
+    """عرض شريط حالة الاتصال في أعلى الصفحة."""
+    api_key = st.session_state.get("openrouter_api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")
+    model = st.session_state.get("openrouter_model", "") or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
+
+    col1, col2, col3 = st.columns([2, 3, 2])
+    with col1:
+        if api_key:
+            st.success("🟢 النموذج متصل")
+        else:
+            st.error("🔴 النموذج غير متصل")
+    with col2:
+        if api_key:
+            st.caption(f"**النموذج:** `{model}`")
+        else:
+            st.caption("أدخل مفتاح OpenRouter API من الشريط الجانبي للبدء")
+    with col3:
+        if st.button("🔌 اختبار الاتصال", use_container_width=True):
+            if not api_key:
+                st.warning("أدخل المفتاح أولاً من الشريط الجانبي")
+            else:
+                with st.spinner("جاري الاختبار..."):
+                    try:
+                        test_res = generate_answer_module.generate_answer("ping", [])
+                        if test_res and "تعذر" not in test_res and "لم يتم" not in test_res:
+                            st.success("✅ الاتصال يعمل")
+                        else:
+                            st.error(f"❌ {test_res}")
+                    except Exception as exc:
+                        st.error(f"❌ {exc}")
+    st.divider()
+
+
 def main() -> None:
     """المنطق الرئيسي للواجهة."""
     apply_rtl_style()
     initialize_session()
     configure_api_keys()
     render_sidebar()
+    render_connection_status()
     render_welcome_message()
-
-    if not (st.session_state.get("openrouter_api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")):
-        st.info("الواجهة جاهزة، لكن الإرسال إلى النموذج يتطلب مفتاح OpenRouter. أدخله من الشريط الجانبي.")
 
     if prompt := st.chat_input("اكتب سؤالك عن قانون العمل المصري..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
