@@ -11,6 +11,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _embed_query(query: str) -> list[float]:
+    """Embed query using OpenRouter if available, otherwise fallback."""
+    try:
+        from openai import OpenAI
+        from dotenv import load_dotenv
+        load_dotenv()
+        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        if not api_key:
+            return []
+        model = os.environ.get("EMBEDDING_MODEL", "openai/text-embedding-3-small")
+        client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
+        response = client.embeddings.create(model=model, input=query)
+        return response.data[0].embedding
+    except Exception:
+        return []
+
+
 def _get_collection(query: str, top_k: int = 10) -> list[dict[str, Any]]:
     """استرجاع النتائج عبر ChromaManager الموحّد."""
     try:
@@ -24,7 +41,11 @@ def _get_collection(query: str, top_k: int = 10) -> list[dict[str, Any]]:
         return []
 
     try:
-        results = collection.query(query_texts=[query], n_results=top_k)
+        embedding = _embed_query(query)
+        if embedding:
+            results = collection.query(query_embeddings=[embedding], n_results=top_k)
+        else:
+            results = collection.query(query_texts=[query], n_results=top_k)
     except Exception:
         return []
 
