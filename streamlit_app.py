@@ -360,7 +360,11 @@ def main() -> None:
         with st.spinner("جاري استرجاع السياق وإعداد الإجابة..."):
             try:
                 context_chunks = retrieve_context(prompt, top_k=10)
-                answer = generate_answer(prompt, context_chunks)
+                history = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state.messages[-10:]
+                ]
+                answer = generate_answer(prompt, context_chunks, history=history)
             except Exception as exc:
                 answer = f"تعذر معالجة الطلب. التفاصيل: {exc}"
 
