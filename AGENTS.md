@@ -36,6 +36,7 @@ A Streamlit-based RAG (Retrieval-Augmented Generation) application for answering
 
 ### Recent Changes
 
+- **Fixed embedding provider** (`.env`, `06_retrieve_context.py`): Switched from useless SHA-256 local embeddings to OpenRouter `openai/text-embedding-3-small` (1536-dim semantic embeddings). This was the root cause of poor retrieval — the model couldn't find relevant context because chunks were compared using random hash vectors.
 - **Improved retrieval pipeline** (`03_chunking.py`, `02_preprocessing.py`, `06_retrieve_context.py`, `streamlit_app.py`):
   - Chunk size increased from 800 to 1200 tokens for more context
   - Overlap ratio increased from 0.12 to 0.2 for better continuity
