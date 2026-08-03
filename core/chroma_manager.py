@@ -18,6 +18,18 @@ import sys
 
 logger = logging.getLogger(__name__)
 
+# NumPy 2.0 compatibility patch for ChromaDB
+try:
+    import numpy as _np
+    if not hasattr(_np, "float_"):
+        _np.float_ = _np.float64
+    if not hasattr(_np, "uint"):
+        _np.uint = _np.uint64
+    if not hasattr(_np, "int_"):
+        _np.int_ = _np.int64
+except Exception:
+    pass
+
 # Settings الوحيد — يُنشأ عند أول import فقط
 from chromadb.config import Settings as _S  # noqa: E402
 

@@ -12,6 +12,17 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).with_name(".env"), override=True)
 
+try:
+    import numpy as _np
+    if not hasattr(_np, "float_"):
+        _np.float_ = _np.float64
+    if not hasattr(_np, "uint"):
+        _np.uint = _np.uint64
+    if not hasattr(_np, "int_"):
+        _np.int_ = _np.int64
+except Exception:
+    pass
+
 # ============================================================
 # تهيئة ChromaManager مرة واحدة عند أول import
 # sys.modules يضمن أن هذا لن يُعاد تنفيذه في الـ reruns
