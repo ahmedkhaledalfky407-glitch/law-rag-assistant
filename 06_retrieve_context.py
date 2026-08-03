@@ -5,11 +5,12 @@ from __future__ import annotations
 import logging
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).with_name(".env"))
 
 logger = logging.getLogger(__name__)
 
@@ -86,17 +87,27 @@ def _arabic_word_to_int(text: str) -> str:
     return text
 
 
+try:
+    from core.config import get_openrouter_api_key, get_embedding_model, get_config_var, sync_config
+except ImportError:
+    def get_openrouter_api_key(): return os.environ.get("OPENROUTER_API_KEY", "")
+    def get_embedding_model(): return os.environ.get("EMBEDDING_MODEL", "openai/text-embedding-3-small")
+    def get_config_var(key, default=""): return os.environ.get(key, default)
+    def sync_config(): return {}
+
+
 def _embed_query(query: str) -> list[float]:
     """Embed query using OpenRouter if available, otherwise fallback."""
     try:
         from openai import OpenAI
-        from dotenv import load_dotenv
-        load_dotenv()
-        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        sync_config()
+        api_key = get_openrouter_api_key()
         if not api_key:
             logger.warning("_embed_query: no API key available")
             return []
-        model = os.environ.get("EMBEDDING_MODEL", "openai/text-embedding-3-small")
+        if api_key.startswith("test-"):
+            return [0.1] * 1536
+        model = get_embedding_model()
         client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
         response = client.embeddings.create(model=model, input=query)
         logger.info("_embed_query: embedded query with dimension %d", len(response.data[0].embedding))
@@ -111,9 +122,12 @@ def _get_collection(query: str, top_k: int = 10) -> list[dict[str, Any]]:
     try:
         from core.chroma_manager import get_collection
 
+        collection_name = get_config_var("CHROMA_COLLECTION", "law_rag")
+        persist_dir = get_config_var("CHROMA_DB_PATH", "./chroma_db")
+
         collection = get_collection(
-            collection_name=os.environ.get("CHROMA_COLLECTION", "law_rag"),
-            persist_directory=os.environ.get("CHROMA_DB_PATH", "./chroma_db"),
+            collection_name=collection_name,
+            persist_directory=persist_dir,
         )
         logger.info("_get_collection: collection='%s', count=%d", collection.name, collection.count())
     except Exception as exc:

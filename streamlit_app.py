@@ -10,7 +10,7 @@ from typing import Any
 import streamlit as st
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+load_dotenv(Path(__file__).with_name(".env"), override=True)
 
 # ============================================================
 # تهيئة ChromaManager مرة واحدة عند أول import
@@ -65,6 +65,14 @@ def apply_rtl_style() -> None:
     )
 
 
+try:
+    from core.config import sync_config, get_openrouter_api_key, get_openrouter_model
+except ImportError:
+    def sync_config(): return {}
+    def get_openrouter_api_key(): return os.environ.get("OPENROUTER_API_KEY", "")
+    def get_openrouter_model(): return os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
+
+
 # ── Secrets helper ──────────────────────────────────────────
 def get_secret_value(key: str, default: str = "") -> str:
     try:
@@ -76,6 +84,7 @@ def get_secret_value(key: str, default: str = "") -> str:
 
 # ── Session state ────────────────────────────────────────────
 def initialize_session() -> None:
+    sync_config()
     if "messages" not in st.session_state:
         st.session_state.messages = []
     if "question_count" not in st.session_state:
@@ -84,54 +93,26 @@ def initialize_session() -> None:
         st.session_state.upload_progress = None
     if "uploaded_sources" not in st.session_state:
         st.session_state.uploaded_sources = []
-    if "openrouter_api_key" not in st.session_state:
-        st.session_state.openrouter_api_key = (
-            os.environ.get("OPENROUTER_API_KEY", "")
-            or get_secret_value("OPENROUTER_API_KEY", "")
-        )
-    if "openrouter_model" not in st.session_state:
-        st.session_state.openrouter_model = (
-            os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
-            or get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL)
-        )
+
+    st.session_state.openrouter_api_key = get_openrouter_api_key()
+    st.session_state.openrouter_model = get_openrouter_model()
 
 
 # ── API key management ───────────────────────────────────────
 def configure_api_keys(api_key: str | None = None, model: str | None = None) -> None:
     try:
-        secret_api_key = get_secret_value("OPENROUTER_API_KEY", "")
-        secret_model = get_secret_value("OPENROUTER_MODEL", OPENROUTER_MODEL)
-
-        resolved_api_key = (
-            api_key
-            or st.session_state.get("openrouter_api_key", "")
-            or os.environ.get("OPENROUTER_API_KEY", "")
-            or secret_api_key
-        )
-        resolved_model = (
-            model
-            or st.session_state.get("openrouter_model", "")
-            or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
-            or secret_model
-        )
-
-        if api_key is not None:
+        if api_key:
             st.session_state.openrouter_api_key = api_key
-        if model is not None:
+            os.environ["OPENROUTER_API_KEY"] = api_key
+        if model:
             st.session_state.openrouter_model = model
+            os.environ["OPENROUTER_MODEL"] = model
 
-        if resolved_api_key:
-            os.environ["OPENROUTER_API_KEY"] = resolved_api_key
-        if resolved_model:
-            os.environ["OPENROUTER_MODEL"] = resolved_model
+        sync_config()
 
         generate_answer_module.configure_api_settings(
-            api_key=resolved_api_key or None,
-            model=resolved_model or None,
-            secrets={
-                "OPENROUTER_API_KEY": secret_api_key,
-                "OPENROUTER_MODEL": secret_model,
-            },
+            api_key=api_key or st.session_state.get("openrouter_api_key"),
+            model=model or st.session_state.get("openrouter_model"),
         )
     except Exception:
         pass
@@ -217,15 +198,34 @@ def process_uploaded_file(uploaded_file) -> dict[str, Any]:
         return {"success": False, "message": f"حدث خطأ أثناء المعالجة: {exc}"}
 
 
+def ensure_index_built() -> None:
+    """إذا كان الفهرس فارغاً على منصة السيرفر، ينشئ الفهرس تلقائياً من مجلد data/."""
+    try:
+        from core.chroma_manager import get_collection
+        collection = get_collection()
+        if collection.count() == 0:
+            data_dir = Path(__file__).with_name("data")
+            txt_files = list(data_dir.glob("*.txt"))
+            if txt_files:
+                st.info("⚙️ قاعدة المتجهات فارغة — جاري بناء قاعدة المعرفة تلقائياً لأول مرة...")
+                all_chunks = []
+                for txt_path in txt_files:
+                    docs = documents_module.load_documents(str(txt_path))
+                    articles = preprocessing_module.process_documents(docs)
+                    chunks = chunking_module.chunk_articles(articles)
+                    all_chunks.extend(chunks)
+                if all_chunks:
+                    embedded = vector_module.build_embeddings(all_chunks)
+                    chroma_module.create_or_update_chroma_store(embedded, rebuild=True)
+                    st.success(f"✅ تم بناء القاعدة بنجاح: {len(all_chunks)} قطعة نصية")
+    except Exception as exc:
+        st.warning(f"ملاحظة حول قاعدة المتجهات: {exc}")
+
+
 # ── Connection status banner ─────────────────────────────────
 def render_connection_status() -> None:
-    api_key = st.session_state.get("openrouter_api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")
-    if not api_key:
-        try:
-            api_key = st.secrets.get("OPENROUTER_API_KEY", "") or ""
-        except Exception:
-            api_key = ""
-    model = st.session_state.get("openrouter_model", "") or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
+    api_key = get_openrouter_api_key()
+    model = get_openrouter_model()
 
     col1, col2, col3 = st.columns([2, 3, 2])
     with col1:
@@ -240,11 +240,18 @@ def render_connection_status() -> None:
             if not api_key:
                 st.warning("أدخل المفتاح أولاً من الشريط الجانبي")
             else:
-                with st.spinner("جاري الاختبار..."):
+                with st.spinner("جاري اختبار الاتصال بالتوليد والتضمينات..."):
                     try:
+                        # 1. Test LLM Chat
                         test_res = generate_answer_module.generate_answer("ping", [])
-                        if test_res and "تعذر" not in test_res and "لم يتم" not in test_res:
-                            st.success("✅ الاتصال يعمل")
+                        # 2. Test Embeddings
+                        emb_res = vector_module.create_embedding("اختبار")
+                        # 3. Check ChromaDB
+                        from core.chroma_manager import get_collection
+                        coll_count = get_collection().count()
+
+                        if test_res and "تعذر" not in test_res and "لم يتم" not in test_res and len(emb_res) > 0:
+                            st.success(f"✅ الاتصال والتضمين يعمل بنجاح! (عدد المستندات المفهرسة: {coll_count})")
                         else:
                             st.error(f"❌ {test_res}")
                     except Exception as exc:
@@ -358,6 +365,7 @@ def main() -> None:
     apply_rtl_style()
     initialize_session()
     configure_api_keys()
+    ensure_index_built()
     render_connection_status()
     render_sidebar()
     render_welcome_message()

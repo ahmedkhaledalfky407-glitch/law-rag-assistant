@@ -33,3 +33,4 @@ Thumbs.db
 
 # Temp debug files
 tmp_*.py
+tmp_test_rag/

@@ -9,52 +9,50 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
-
 logger = logging.getLogger(__name__)
 
+try:
+    from core.config import get_openrouter_api_key, get_openrouter_model, sync_config
+except ImportError:
+    def get_openrouter_api_key(): return os.environ.get("OPENROUTER_API_KEY", "")
+    def get_openrouter_model(): return os.environ.get("OPENROUTER_MODEL", "openai/gpt-4o-mini")
+    def sync_config(): return {}
+
+
 OPENROUTER_API_KEY = ""
-OPENROUTER_MODEL = "openai/gpt-4o"
+OPENROUTER_MODEL = "openai/gpt-4o-mini"
 
 
 def configure_api_settings(api_key: str | None = None, model: str | None = None, secrets: dict[str, str] | None = None) -> tuple[str, str]:
     """تحديث إعدادات OpenRouter من البيئة أو Streamlit secrets أو القيم المقدمة."""
     global OPENROUTER_API_KEY, OPENROUTER_MODEL
 
-    load_dotenv(override=True)
-
-    secret_store = secrets or {}
+    sync_config()
 
     def _clean(val: str) -> str:
         return val.strip() if val and val != "your_openrouter_api_key_here" else ""
 
-    if api_key is not None:
+    if api_key is not None and _clean(api_key):
         OPENROUTER_API_KEY = _clean(api_key)
     else:
-        resolved = _clean(
-            secret_store.get("OPENROUTER_API_KEY", "")
-            or os.environ.get("OPENROUTER_API_KEY", "")
-            or OPENROUTER_API_KEY
-        )
-        OPENROUTER_API_KEY = resolved
+        OPENROUTER_API_KEY = get_openrouter_api_key()
 
-    if model is not None:
+    if model is not None and model.strip():
         OPENROUTER_MODEL = model.strip()
     else:
-        OPENROUTER_MODEL = (
-            secret_store.get("OPENROUTER_MODEL", "")
-            or os.environ.get("OPENROUTER_MODEL", "")
-            or OPENROUTER_MODEL
-        ).strip()
+        OPENROUTER_MODEL = get_openrouter_model()
 
-    os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
-    os.environ["OPENROUTER_MODEL"] = OPENROUTER_MODEL
+    if OPENROUTER_API_KEY:
+        os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
+    if OPENROUTER_MODEL:
+        os.environ["OPENROUTER_MODEL"] = OPENROUTER_MODEL
+
     return OPENROUTER_API_KEY, OPENROUTER_MODEL
 
 
 def get_api_config() -> tuple[str, str]:
     """إرجاع الإعدادات الحالية لواجهة OpenRouter."""
-    return OPENROUTER_API_KEY, OPENROUTER_MODEL
+    return configure_api_settings()
 
 
 # تهيئة أولية عند تحميل الموديول

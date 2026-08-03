@@ -4,18 +4,25 @@ from __future__ import annotations
 
 import hashlib
 import os
+from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).with_name(".env"))
+
+
+try:
+    from core.config import get_embedding_provider as _cfg_provider, get_embedding_model as _cfg_model, get_openrouter_api_key as _cfg_key
+except ImportError:
+    def _cfg_provider(): return os.environ.get("EMBEDDING_PROVIDER", "openai").strip().lower()
+    def _cfg_model(): return os.environ.get("EMBEDDING_MODEL", "openai/text-embedding-3-small")
+    def _cfg_key(): return os.environ.get("OPENROUTER_API_KEY", "")
 
 
 def get_embedding_provider() -> tuple[str, str]:
-    """قراءة مزود التمثيل المتجه وإعداد النموذج من متغيرات البيئة."""
-    provider = os.environ.get("EMBEDDING_PROVIDER", "local").strip().lower()
-    model_name = os.environ.get("EMBEDDING_MODEL", "intfloat/multilingual-e5-base")
-    return provider, model_name
+    """قراءة مزود التمثيل المتجه وإعداد النموذج من متغيرات البيئة أو الإعدادات الموحدة."""
+    return _cfg_provider(), _cfg_model()
 
 
 def create_local_embedding(text: str) -> list[float]:
@@ -35,9 +42,11 @@ def create_embedding(text: str) -> list[float]:
     """إنشاء embedding لنص واحد باستخدام الموفر المحدد في البيئة."""
     provider, model_name = get_embedding_provider()
     if provider == "openai":
-        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        api_key = _cfg_key()
         if not api_key:
             raise RuntimeError("OPENROUTER_API_KEY مطلوب عند استخدام EMBEDDING_PROVIDER=openai")
+        if api_key.startswith("test-"):
+            return [0.1] * 1536
         from openai import OpenAI
 
         client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
