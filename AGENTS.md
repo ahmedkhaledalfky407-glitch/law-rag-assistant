@@ -36,4 +36,4 @@ A Streamlit-based RAG (Retrieval-Augmented Generation) application for answering
 
 ### Recent Changes
 
-- **System prompt made flexible** (`07_prompting.py:58`): Changed from rigid refusal to conversational tone — handles greetings warmly, asks for clarification before answering, gently declines non-legal questions, and can answer general questions when no legal context is available. Restructured rules so greetings are handled first and the AI doesn't refuse immediately.
+- **System prompt made strict data-only** (`07_prompting.py:58`): Model must answer only from retrieved context — general knowledge answers are forbidden. Uses [حرج] tags to enforce constraints. Handles greetings warmly, asks for clarification before answering, gently declines non-legal questions.
