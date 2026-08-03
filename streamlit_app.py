@@ -322,6 +322,10 @@ def main() -> None:
     render_sidebar()
     render_welcome_message()
 
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            st.write(msg["content"])
+
     if prompt := st.chat_input("اكتب سؤالك عن قانون العمل المصري..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.session_state.question_count += 1
