@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -9,6 +10,8 @@ from typing import Any
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+logger = logging.getLogger(__name__)
 
 OPENROUTER_API_KEY = ""
 OPENROUTER_MODEL = "openai/gpt-4o-mini"
@@ -93,15 +96,17 @@ def build_system_prompt(has_context: bool = False) -> str:
 
 def generate_answer(query: str, context_chunks: list[dict[str, Any]]) -> str:
     """إنشاء إجابة نهائية باستخدام OpenRouter API أو إرجاع رسالة بديلة عند فشل الاتصال."""
-    # تحديث الإعدادات في كل استدعاء لضمان قراءة المفتاح الحديث
     api_key, model_name = configure_api_settings()
+    logger.info("generate_answer: query='%s', has_context=%d, model=%s", query[:50], len(context_chunks), model_name)
 
     try:
         from openai import OpenAI
     except Exception as exc:
+        logger.error("generate_answer: failed to import OpenAI - %s", exc)
         return f"تعذر تهيئة العميل: {exc}"
 
     if not api_key:
+        logger.warning("generate_answer: no API key configured")
         return "لم يتم توفير مفتاح OpenRouter. أضف المفتاح في البيئة أو في Streamlit secrets أو أدخله من الشريط الجانبي."
 
     has_context = bool(context_chunks)
@@ -130,6 +135,8 @@ def generate_answer(query: str, context_chunks: list[dict[str, Any]]) -> str:
     else:
         user_message += "\n\n[حرج] لا توجد سياق قانوني متاح. لا تجب من معرفتك العامة."
 
+    logger.info("generate_answer: sending to model with %d chars of context", len(context_text))
+
     try:
         client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
         response = client.chat.completions.create(
@@ -140,8 +147,11 @@ def generate_answer(query: str, context_chunks: list[dict[str, Any]]) -> str:
             ],
             temperature=0.2,
         )
-        return response.choices[0].message.content or "لم يتم إنشاء إجابة."
+        answer = response.choices[0].message.content or "لم يتم إنشاء إجابة."
+        logger.info("generate_answer: received answer (%d chars)", len(answer))
+        return answer
     except Exception as exc:
+        logger.error("generate_answer: API call failed - %s", exc)
         return f"تعذر الاتصال بالنموذج: {exc}"
 
 
