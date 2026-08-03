@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def _get_collection(query: str, top_k: int = 5) -> list[dict[str, Any]]:
+def _get_collection(query: str, top_k: int = 10) -> list[dict[str, Any]]:
     """استرجاع النتائج عبر ChromaManager الموحّد."""
     try:
         from core.chroma_manager import get_collection
@@ -50,8 +50,19 @@ def _get_collection(query: str, top_k: int = 5) -> list[dict[str, Any]]:
     return hits
 
 
-def retrieve_context(query: str, top_k: int = 5) -> list[dict[str, Any]]:
-    """إرجاع السياق الأكثر صلة، مع إعادة ترتيب بسيطة بناءً على رقم المادة."""
+def _normalize_article_number(num: str) -> str:
+    """تطبيع رقم المادة للمقارنة."""
+    num = num.strip()
+    arabic_numerals = "٠١٢٣٤٥٦٧٨٩"
+    mapping = str.maketrans(arabic_numerals, "0123456789")
+    num = num.translate(mapping)
+    num = re.sub(r"^المادة\s*", "", num)
+    num = re.sub(r"^رقم\s*", "", num)
+    return num.strip()
+
+
+def retrieve_context(query: str, top_k: int = 10) -> list[dict[str, Any]]:
+    """إرجاع السياق الأكثر صلة، مع إعادة ترتيب وتنظيف النتائج."""
     results = _get_collection(query, top_k=top_k)
     if not results:
         return []
@@ -59,21 +70,38 @@ def retrieve_context(query: str, top_k: int = 5) -> list[dict[str, Any]]:
     article_match: str | None = None
     match = re.search(r"المادة\s*(?:رقم\s*)?([\w\s]+)", query)
     if match:
-        article_match = match.group(1).strip()
+        article_match = _normalize_article_number(match.group(1))
 
-    if article_match:
-        return sorted(
-            results,
-            key=lambda item: (
-                1
-                if str(item.get("source", {}).get("article_number", "")).strip()
-                == article_match
-                else 0,
-                item.get("similarity", 0),
-            ),
-            reverse=True,
-        )
-    return results
+    scored: list[dict[str, Any]] = []
+    for item in results:
+        source = item.get("source", {})
+        article_num = source.get("article_number", "")
+        normalized_article = _normalize_article_number(str(article_num))
+
+        score = item.get("similarity", 0)
+
+        if article_match and normalized_article == article_match:
+            score += 0.5
+
+        if article_match and normalized_article and normalized_article in article_match:
+            score += 0.3
+
+        if article_match and article_match in normalized_article:
+            score += 0.3
+
+        scored.append({**item, "score": score})
+
+    scored.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+    seen_articles: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for item in scored:
+        article_num = str(item.get("source", {}).get("article_number", ""))
+        if article_num not in seen_articles:
+            seen_articles.add(article_num)
+            deduped.append(item)
+
+    return deduped
 
 
 if __name__ == "__main__":

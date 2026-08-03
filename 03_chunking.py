@@ -14,7 +14,7 @@ def split_text_by_sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def chunk_articles(articles: list[dict[str, Any]], max_tokens: int = 800, overlap_ratio: float = 0.12) -> list[dict[str, Any]]:
+def chunk_articles(articles: list[dict[str, Any]], max_tokens: int = 1200, overlap_ratio: float = 0.2) -> list[dict[str, Any]]:
     """قسم كل مادة إلى chunks، مع تقسيم طويلها بشكل تكراري عند الحاجة."""
     chunks: list[dict[str, Any]] = []
     overlap_size = max(1, int(max_tokens * overlap_ratio))
@@ -54,7 +54,8 @@ def chunk_articles(articles: list[dict[str, Any]], max_tokens: int = 800, overla
                         "text": chunk_text,
                     }
                 )
-                overlap_sentences = buffer[-overlap_size // max(1, len(buffer)):] if buffer else []
+                overlap_count = max(1, int(len(buffer) * overlap_ratio))
+                overlap_sentences = buffer[-overlap_count:] if buffer else []
                 buffer = list(overlap_sentences)
                 current_tokens = sum(len(part.split()) for part in buffer)
                 chunk_counter += 1

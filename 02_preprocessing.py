@@ -7,6 +7,15 @@ import sys
 from typing import Any
 
 
+ARABIC_NUMERALS = "٠١٢٣٤٥٦٧٨٩"
+
+
+def _arabic_to_int(text: str) -> str:
+    """تحويل الأرقام العربية إلى أرقام إنجليزية للمقارنة."""
+    mapping = str.maketrans(ARABIC_NUMERALS, "0123456789")
+    return text.translate(mapping)
+
+
 def preprocess_text(text: str) -> str:
     """نظّف النص العربي مع الحفاظ على المعنى القانوني."""
     if not text:
@@ -19,6 +28,15 @@ def preprocess_text(text: str) -> str:
     return "\n".join(lines)
 
 
+def _normalize_article_number(num: str) -> str:
+    """تطبيع رقم المادة للمقارنة."""
+    num = num.strip()
+    num = _arabic_to_int(num)
+    num = re.sub(r"^المادة\s*", "", num)
+    num = re.sub(r"^رقم\s*", "", num)
+    return num.strip()
+
+
 def extract_hierarchy(raw_text: str) -> list[dict[str, Any]]:
     """استخراج عناصر {book, chapter, article_number, article_text} عبر Regex."""
     cleaned = preprocess_text(raw_text)
@@ -27,20 +45,27 @@ def extract_hierarchy(raw_text: str) -> list[dict[str, Any]]:
     current_chapter = None
     current_article = None
 
+    book_pattern = re.compile(r"^الكتاب\s+(.+)$")
+    chapter_pattern = re.compile(r"^الباب\s+(.+)$")
+    article_pattern = re.compile(
+        r"^المادة\s*(?:رقم\s*)?(.+?)(?:\s*[:\-]|$)", re.UNICODE
+    )
+
     for line in cleaned.splitlines():
         if not line.strip():
             continue
-        book_match = re.match(r"^الكتاب\s+([\w\s]+)$", line)
+
+        book_match = book_pattern.match(line)
         if book_match:
             current_book = book_match.group(1).strip()
             continue
 
-        chapter_match = re.match(r"^الباب\s+([\w\s]+)$", line)
+        chapter_match = chapter_pattern.match(line)
         if chapter_match:
             current_chapter = chapter_match.group(1).strip()
             continue
 
-        article_match = re.match(r"^المادة\s*(?:رقم\s*)?(.+?)(?:\s*[:\-]|$)", line)
+        article_match = article_pattern.match(line)
         if article_match:
             if current_article is not None:
                 articles.append(current_article)

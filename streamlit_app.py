@@ -359,7 +359,7 @@ def main() -> None:
         context_chunks: list[dict[str, Any]] = []
         with st.spinner("جاري استرجاع السياق وإعداد الإجابة..."):
             try:
-                context_chunks = retrieve_context(prompt, top_k=5)
+                context_chunks = retrieve_context(prompt, top_k=10)
                 answer = generate_answer(prompt, context_chunks)
             except Exception as exc:
                 answer = f"تعذر معالجة الطلب. التفاصيل: {exc}"
