@@ -45,4 +45,4 @@ A Streamlit-based RAG (Retrieval-Augmented Generation) application for answering
   - Added deduplication of chunks from same article in retrieval
   - Improved article regex patterns with Unicode support
   - Added score-based ranking with article number bonuses
-- **System prompt made strict data-only** (`07_prompting.py:58`): Model must answer only from retrieved context — general knowledge answers are forbidden. Uses [حرج] tags to enforce constraints. Handles greetings warmly, asks for clarification before answering, gently declines non-legal questions.
+- **System prompt made strict data-only** (`07_prompting.py:58`): Model must answer only from retrieved context — general knowledge answers are forbidden. Uses [حرج قصوى] tags to enforce constraints. Added step-by-step verification instructions in user message. Handles greetings warmly, asks for clarification before answering, gently declines non-legal questions.
