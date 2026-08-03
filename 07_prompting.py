@@ -108,6 +108,9 @@ def generate_answer(query: str, context_chunks: list[dict[str, Any]]) -> str:
     user_message = f"السؤال: {query}"
     if context_text:
         user_message += f"\n\n--- السياق القانوني المسترجع ---\n{context_text}\n--- نهاية السياق ---"
+        user_message += "\n\n[حرج] أجب فقط من السياق القانوني أعلاه. لا تستخدم أي معلومات أخرى أو معرفة عامة."
+    else:
+        user_message += "\n\n[حرج] لا توجد سياق قانوني متاح. لا تجب من معرفتك العامة."
 
     try:
         client = OpenAI(api_key=api_key, base_url="https://openrouter.ai/api/v1")
