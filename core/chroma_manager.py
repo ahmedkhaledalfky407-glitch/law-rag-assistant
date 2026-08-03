@@ -86,13 +86,19 @@ def delete_collection(collection_name: str, persist_directory: str | None = None
 
 def verify_singleton() -> dict:
     """حالة الـ singleton للتشخيص."""
+    collection_count = 0
+    if _client:
+        try:
+            collection_count = _client.get_collection(
+                os.environ.get("CHROMA_COLLECTION", "law_rag")
+            ).count()
+        except Exception:
+            collection_count = 0
     return {
         "module_id": id(sys.modules.get(__name__)),
         "client_id": id(_client) if _client else None,
         "settings_id": id(_SETTINGS),
         "client_path": _client_path,
         "client_ready": _client is not None,
-        "collection_count": _client.get_collection(
-            os.environ.get("CHROMA_COLLECTION", "law_rag")
-        ).count() if _client else 0,
+        "collection_count": collection_count,
     }
