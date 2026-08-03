@@ -11,7 +11,7 @@ __pycache__/
 *.pyd
 
 # ChromaDB
-chroma_db/
+# chroma_db/
 
 # Data files (keep only sample data)
 # data/*.txt

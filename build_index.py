@@ -50,7 +50,7 @@ def main() -> None:
     chunks = chunking_module.chunk_articles(articles)
     print(f"تم إنشاء {len(chunks)} chunk")
 
-    provider = os.environ.get("EMBEDDING_PROVIDER", "local").strip().lower()
+    provider = os.environ.get("EMBEDDING_PROVIDER", "openai").strip().lower()
     if provider == "local":
         embedded_chunks = chunks
         print(f"استخدام ChromaDB الافتراضي للـ embeddings ({len(embedded_chunks)} chunk)")

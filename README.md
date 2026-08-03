@@ -36,8 +36,8 @@ streamlit run streamlit_app.py
 ```toml
 OPENROUTER_API_KEY = "sk-or-v1-..."
 OPENROUTER_MODEL = "openai/gpt-4o-mini"
-EMBEDDING_PROVIDER = "local"
-EMBEDDING_MODEL = "intfloat/multilingual-e5-base"
+EMBEDDING_PROVIDER = "openai"
+EMBEDDING_MODEL = "openai/text-embedding-3-small"
 CHROMA_DB_PATH = "./chroma_db"
 CHROMA_COLLECTION = "law_rag"
 ```
