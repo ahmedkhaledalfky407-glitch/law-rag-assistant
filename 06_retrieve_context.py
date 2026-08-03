@@ -13,6 +13,78 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+_ARABIC_NUMERALS = "٠١٢٣٤٥٦٧٨٩"
+
+_ARABIC_UNITS = {
+    "الأولى": 1,
+    "الأولي": 1,
+    "الثانية": 2,
+    "الثالثة": 3,
+    "الرابعة": 4,
+    "الخامسة": 5,
+    "السادسة": 6,
+    "السابعة": 7,
+    "الثامنة": 8,
+    "التاسعة": 9,
+    "العاشرة": 10,
+}
+
+_ARABIC_TEENS = {
+    "الحادية عشرة": 11,
+    "الحادية عشر": 11,
+    "الثانية عشرة": 12,
+    "الثانية عشر": 12,
+    "الثالثة عشرة": 13,
+    "الثالثة عشر": 13,
+    "الرابعة عشرة": 14,
+    "الرابعة عشر": 14,
+    "الخامسة عشرة": 15,
+    "الخامسة عشر": 15,
+    "السادسة عشرة": 16,
+    "السادسة عشر": 16,
+    "السابعة عشرة": 17,
+    "السابعة عشر": 17,
+    "الثامنة عشرة": 18,
+    "الثامنة عشر": 18,
+    "التاسعة عشرة": 19,
+    "التاسعة عشر": 19,
+}
+
+_ARABIC_TENS = {
+    "العشرون": 20,
+    "العشرين": 20,
+    "الثلاثون": 30,
+    "الثلاثين": 30,
+    "الأربعون": 40,
+    "الأربعين": 40,
+    "الخمسون": 50,
+    "الخمسين": 50,
+    "الستون": 60,
+    "الستين": 60,
+    "السبعون": 70,
+    "السبعين": 70,
+    "الثمانون": 80,
+    "الثمانين": 80,
+    "التسعون": 90,
+    "التسعين": 90,
+}
+
+
+def _arabic_word_to_int(text: str) -> str:
+    """تحويل أرقام عربية مكتوبة بالكلمات إلى أرقام إنجليزية."""
+    text = text.strip()
+    if text in _ARABIC_UNITS:
+        return str(_ARABIC_UNITS[text])
+    if text in _ARABIC_TEENS:
+        return str(_ARABIC_TEENS[text])
+    if text in _ARABIC_TENS:
+        return str(_ARABIC_TENS[text])
+    for unit_name, unit_val in _ARABIC_UNITS.items():
+        for ten_name, ten_val in _ARABIC_TENS.items():
+            if text == f"{unit_name} و{ten_name}" or text == f"{unit_name} وال{ten_name}":
+                return str(unit_val + ten_val)
+    return text
+
 
 def _embed_query(query: str) -> list[float]:
     """Embed query using OpenRouter if available, otherwise fallback."""
@@ -54,6 +126,22 @@ def _get_collection(query: str, top_k: int = 10) -> list[dict[str, Any]]:
             results = collection.query(query_embeddings=[embedding], n_results=top_k)
             logger.info("_get_collection: used query_embeddings (dimension=%d)", len(embedding))
         else:
+            existing_dim = None
+            try:
+                peek = collection.peek(limit=1)
+                embeds = peek.get("embeddings")
+                if embeds and len(embeds) > 0 and isinstance(embeds[0], list):
+                    existing_dim = len(embeds[0])
+            except Exception:
+                pass
+
+            if existing_dim is not None and existing_dim != 384:
+                logger.error(
+                    "_get_collection: cannot fall back to query_texts because collection uses external embeddings (dimension=%d)",
+                    existing_dim,
+                )
+                return []
+
             results = collection.query(query_texts=[query], n_results=top_k)
             logger.warning("_get_collection: fell back to query_texts (no embedding)")
     except Exception as exc:
@@ -86,6 +174,7 @@ def _get_collection(query: str, top_k: int = 10) -> list[dict[str, Any]]:
 def _normalize_article_number(num: str) -> str:
     """تطبيع رقم المادة للمقارنة."""
     num = num.strip()
+    num = _arabic_word_to_int(num)
     arabic_numerals = "٠١٢٣٤٥٦٧٨٩"
     mapping = str.maketrans(arabic_numerals, "0123456789")
     num = num.translate(mapping)

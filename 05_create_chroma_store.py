@@ -10,6 +10,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _get_existing_embedding_dimension(client, collection_name: str) -> int | None:
+    """الحصول على بعد الـ embedding للـ collection الموجودة، أو None إذا لم توجد."""
+    try:
+        collection = client.get_collection(name=collection_name)
+        if collection.count() == 0:
+            return None
+        peek = collection.peek(limit=1)
+        embeddings = peek.get("embeddings")
+        if embeddings is not None and len(embeddings) > 0:
+            first = embeddings[0]
+            if hasattr(first, "__len__"):
+                return len(first)
+    except Exception:
+        pass
+    return None
+
+
 def create_or_update_chroma_store(
     chunks: list[dict[str, Any]],
     persist_directory: str = "./chroma_db",
@@ -23,7 +40,6 @@ def create_or_update_chroma_store(
         get_or_create_collection,
     )
 
-    # الـ client الوحيد — لا يُنشأ client جديد هنا أبداً
     client = get_chroma_client(persist_directory)
 
     if rebuild:
@@ -34,13 +50,22 @@ def create_or_update_chroma_store(
         for chunk in chunks
     )
 
-    # لو embeddings خارجية → احذف الـ collection القديمة لتجنب تعارض الأبعاد
+    new_dim = None
+    if has_valid_embeddings and chunks:
+        new_dim = len(chunks[0].get("embedding") or [])
+
+    existing_dim = None
+    collection_exists = False
     if has_valid_embeddings and not rebuild:
         try:
-            client.get_collection(name=collection_name)
-            delete_collection(collection_name, persist_directory)
+            existing_dim = _get_existing_embedding_dimension(client, collection_name)
+            collection_exists = existing_dim is not None
         except Exception:
             pass
+
+        if collection_exists and existing_dim != new_dim:
+            delete_collection(collection_name, persist_directory)
+            collection_exists = False
 
     if has_valid_embeddings:
         collection = client.get_or_create_collection(
@@ -54,6 +79,8 @@ def create_or_update_chroma_store(
     embeddings: list[list[float]] = []
     metadatas: list[dict] = []
 
+    start_index = collection.count() if collection_exists and not rebuild else 0
+
     for index, chunk in enumerate(chunks):
         text = chunk.get("text", "")
         embedding = chunk.get("embedding") or []
@@ -64,7 +91,7 @@ def create_or_update_chroma_store(
             "chunk_id": chunk.get("chunk_id") or f"chunk_{index}",
             "source_file": chunk.get("source_file") or "unknown.txt",
         }
-        ids.append(str(index))
+        ids.append(str(start_index + index))
         documents.append(text)
         embeddings.append(embedding)
         metadatas.append(metadata)

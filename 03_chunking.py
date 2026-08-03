@@ -33,6 +33,7 @@ def chunk_articles(articles: list[dict[str, Any]], max_tokens: int = 1200, overl
                     "article_number": article.get("article_number"),
                     "chunk_id": f"{article.get('article_number')}_{index}_0",
                     "text": chunk_text,
+                    "source_file": article.get("source_file"),
                 }
             )
             continue
@@ -52,6 +53,7 @@ def chunk_articles(articles: list[dict[str, Any]], max_tokens: int = 1200, overl
                         "article_number": article.get("article_number"),
                         "chunk_id": f"{article.get('article_number')}_{index}_{chunk_counter}",
                         "text": chunk_text,
+                        "source_file": article.get("source_file"),
                     }
                 )
                 overlap_count = max(1, int(len(buffer) * overlap_ratio))
@@ -70,6 +72,7 @@ def chunk_articles(articles: list[dict[str, Any]], max_tokens: int = 1200, overl
                     "article_number": article.get("article_number"),
                     "chunk_id": f"{article.get('article_number')}_{index}_{chunk_counter}",
                     "text": " ".join(buffer),
+                    "source_file": article.get("source_file"),
                 }
             )
 

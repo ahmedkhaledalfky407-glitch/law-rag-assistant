@@ -47,7 +47,7 @@ def get_chroma_client(persist_directory: str | None = None):
         try:
             # نستخدم reset() على الـ client القديم إذا كان موجوداً
             from chromadb.api.shared_system_client import SharedSystemClient
-            SharedSystemClient._identifer_to_system.clear()
+            SharedSystemClient._identifier_to_system.clear()
         except Exception:
             pass
         _client = chromadb.PersistentClient(path=path, settings=_SETTINGS)

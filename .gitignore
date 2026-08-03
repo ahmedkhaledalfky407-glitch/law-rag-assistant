@@ -30,3 +30,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Temp debug files
+tmp_*.py
