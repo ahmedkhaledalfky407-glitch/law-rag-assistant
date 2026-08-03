@@ -21,27 +21,30 @@ def configure_api_settings(api_key: str | None = None, model: str | None = None,
     """تحديث إعدادات OpenRouter من البيئة أو Streamlit secrets أو القيم المقدمة."""
     global OPENROUTER_API_KEY, OPENROUTER_MODEL
 
-    # إعادة تحميل .env في كل استدعاء لضمان التحديث الفوري
     load_dotenv(override=True)
 
     secret_store = secrets or {}
 
-    # تجاهل قيمة placeholder
     def _clean(val: str) -> str:
         return val.strip() if val and val != "your_openrouter_api_key_here" else ""
 
     if api_key is not None:
         OPENROUTER_API_KEY = _clean(api_key)
-    elif not OPENROUTER_API_KEY:
-        OPENROUTER_API_KEY = _clean(
-            secret_store.get("OPENROUTER_API_KEY", "") or os.environ.get("OPENROUTER_API_KEY", "")
+    else:
+        resolved = _clean(
+            secret_store.get("OPENROUTER_API_KEY", "")
+            or os.environ.get("OPENROUTER_API_KEY", "")
+            or OPENROUTER_API_KEY
         )
+        OPENROUTER_API_KEY = resolved
 
     if model is not None:
         OPENROUTER_MODEL = model.strip()
-    elif not OPENROUTER_MODEL or OPENROUTER_MODEL == "openai/gpt-4o-mini":
+    else:
         OPENROUTER_MODEL = (
-            secret_store.get("OPENROUTER_MODEL", "") or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
+            secret_store.get("OPENROUTER_MODEL", "")
+            or os.environ.get("OPENROUTER_MODEL", "")
+            or OPENROUTER_MODEL
         ).strip()
 
     os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
@@ -145,8 +148,12 @@ def generate_answer(query: str, context_chunks: list[dict[str, Any]], history: l
         logger.info("generate_answer: received answer (%d chars)", len(answer))
         return answer
     except Exception as exc:
-        logger.error("generate_answer: API call failed - %s", exc)
-        return f"تعذر الاتصال بالنموذج: {exc}"
+        error_msg = str(exc)
+        if "401" in error_msg or "Authentication" in error_msg or "Missing Authentication" in error_msg:
+            logger.error("generate_answer: authentication failed - %s", error_msg)
+            return "لم يتم التحقق من الهوية. تأكد من إضافة OPENROUTER_API_KEY في إعدادات Streamlit Cloud Secrets أو أدخل المفتاح من الشريط الجانبي."
+        logger.error("generate_answer: API call failed - %s", error_msg)
+        return f"تعذر الاتصال بالنموذج: {error_msg}"
 
 
 if __name__ == "__main__":
