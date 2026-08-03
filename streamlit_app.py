@@ -80,6 +80,8 @@ def initialize_session() -> None:
         st.session_state.messages = []
     if "question_count" not in st.session_state:
         st.session_state.question_count = 0
+    if "upload_progress" not in st.session_state:
+        st.session_state.upload_progress = None
     if "uploaded_sources" not in st.session_state:
         st.session_state.uploaded_sources = []
     if "openrouter_api_key" not in st.session_state:
@@ -158,33 +160,52 @@ def _save_env_var(key: str, value: str) -> None:
 
 # ── File upload ──────────────────────────────────────────────
 def process_uploaded_file(uploaded_file) -> dict[str, Any]:
+    stages = [
+        ("حفظ الملف", "جاري حفظ الملف..."),
+        ("تحميل الوثيقة", "جاري تحميل الوثيقة..."),
+        ("تنظيف النص واستخراج المواد", "جاري استخراج المواد القانونية..."),
+        ("تقسيم المواد إلى chunks", "جاري تقسيم المواد..."),
+        ("إنشاء embeddings", "جاري إنشاء التمثيل المتجه..."),
+        ("حفظ في قاعدة البيانات", "جاري حفظ في قاعدة البيانات..."),
+    ]
     try:
-        # حفظ الملف بشكل دائم في data/
         data_dir = Path(__file__).with_name("data")
         data_dir.mkdir(exist_ok=True)
         temp_path = data_dir / uploaded_file.name
         temp_path.write_bytes(uploaded_file.getvalue())
+        for stage_name, stage_msg in stages[:1]:
+            st.session_state.upload_progress = (stage_name, stage_msg)
 
         documents = documents_module.load_documents(str(temp_path))
         if not documents or not documents[0].get("raw_text"):
             return {"success": False, "message": "تعذر قراءة الملف. تأكد من أنه ملف نصي صالح."}
+        for stage_name, stage_msg in stages[1:2]:
+            st.session_state.upload_progress = (stage_name, stage_msg)
 
         articles = preprocessing_module.process_documents(documents)
         if not articles:
             return {"success": False, "message": "لم يتم العثور على مواد قانونية في الملف."}
+        for stage_name, stage_msg in stages[2:3]:
+            st.session_state.upload_progress = (stage_name, stage_msg)
 
         chunks = chunking_module.chunk_articles(articles)
         if not chunks:
             return {"success": False, "message": "لم يتم إنشاء chunks من الملف."}
+        for stage_name, stage_msg in stages[3:4]:
+            st.session_state.upload_progress = (stage_name, stage_msg)
 
         embedded_chunks = vector_module.build_embeddings(chunks)
+        for stage_name, stage_msg in stages[4:5]:
+            st.session_state.upload_progress = (stage_name, stage_msg)
 
         result = chroma_module.create_or_update_chroma_store(
             embedded_chunks,
             persist_directory=os.environ.get("CHROMA_DB_PATH", "./chroma_db"),
             collection_name=os.environ.get("CHROMA_COLLECTION", "law_rag"),
-            rebuild=False,  # نضيف فوق الموجود
+            rebuild=False,
         )
+        for stage_name, stage_msg in stages[5:]:
+            st.session_state.upload_progress = (stage_name, stage_msg)
 
         return {
             "success": True,
@@ -287,14 +308,18 @@ def render_sidebar() -> None:
         )
         if uploaded_file is not None:
             if st.button("إضافة المصدر", use_container_width=True, type="primary"):
-                with st.spinner("جاري المعالجة..."):
-                    result = process_uploaded_file(uploaded_file)
-                    if result["success"]:
-                        st.session_state.uploaded_sources.append(uploaded_file.name)
-                        st.success(result["message"])
-                        st.rerun()
-                    else:
-                        st.error(result["message"])
+                st.session_state.upload_progress = None
+                stage_placeholder = st.empty()
+                result = process_uploaded_file(uploaded_file)
+                progress = st.session_state.get("upload_progress")
+                if progress:
+                    stage_placeholder.success(f"✅ {progress[0]}: {progress[1]}")
+                if result["success"]:
+                    st.session_state.uploaded_sources.append(uploaded_file.name)
+                    st.success(result["message"])
+                    st.rerun()
+                else:
+                    st.error(result["message"])
 
         if st.session_state.uploaded_sources:
             st.divider()
@@ -340,8 +365,8 @@ def main() -> None:
                 answer = f"تعذر معالجة الطلب. التفاصيل: {exc}"
 
         st.chat_message("assistant").write(answer)
-        with st.expander("المصادر المستخدمة", expanded=True):
-            if context_chunks:
+        if context_chunks:
+            with st.expander("📚 المصادر المستخدمة", expanded=True):
                 for item in context_chunks:
                     source = item.get("source", {})
                     st.write(
@@ -350,8 +375,8 @@ def main() -> None:
                         f"الكتاب: {source.get('book', 'غير محدد')} | "
                         f"التشابه: {item.get('similarity', 0):.2f}"
                     )
-            else:
-                st.write("لا توجد مصادر. يمكنك رفع ملفات جديدة من الشريط الجانبي.")
+        else:
+            st.caption("لا توجد مصادر. يمكنك رفع ملفات جديدة من الشريط الجانبي.")
 
         st.session_state.messages.append({"role": "assistant", "content": answer})
 
