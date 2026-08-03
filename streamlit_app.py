@@ -220,6 +220,11 @@ def process_uploaded_file(uploaded_file) -> dict[str, Any]:
 # ── Connection status banner ─────────────────────────────────
 def render_connection_status() -> None:
     api_key = st.session_state.get("openrouter_api_key", "") or os.environ.get("OPENROUTER_API_KEY", "")
+    if not api_key:
+        try:
+            api_key = st.secrets.get("OPENROUTER_API_KEY", "") or ""
+        except Exception:
+            api_key = ""
     model = st.session_state.get("openrouter_model", "") or os.environ.get("OPENROUTER_MODEL", OPENROUTER_MODEL)
 
     col1, col2, col3 = st.columns([2, 3, 2])
@@ -298,6 +303,16 @@ def render_sidebar() -> None:
         st.markdown(f"**الحالة:** {'✅ متصل' if current_key else '❌ غير متصل'}")
         if not current_key:
             st.warning("أضف OPENROUTER_API_KEY في البيئة أو الشريط الجانبي.")
+
+        # ── Diagnostic ──
+        try:
+            secret_key = st.secrets.get("OPENROUTER_API_KEY", "")
+            if secret_key and secret_key != "your_openrouter_api_key_here":
+                st.caption("🔑 المفتاح موجود في Streamlit Secrets")
+            else:
+                st.caption("⚠️ المفتاح غير موجود في Streamlit Secrets — أضفه من Settings → Secrets")
+        except Exception:
+            st.caption("⚠️ لا يمكن الوصول إلى Streamlit Secrets")
 
         st.divider()
         st.subheader("📂 رفع مصادر جديدة")
